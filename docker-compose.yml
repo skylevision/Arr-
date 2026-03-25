@@ -123,12 +123,12 @@ volumes:
       o: bind
       device: ${APPDATA}/bazarr
 
-  overseerr_data:
+  jellyseerr_data:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: ${APPDATA}/overseerr
+      device: ${APPDATA}/jellyseerr
 
   jellyfin_config:
     driver: local
@@ -392,19 +392,21 @@ services:
       - sonarr
 
   # ==========================================================================
-  # OVERSEERR — User-facing media request portal
+  # JELLYSEERR — User-facing media request portal (Overseerr successor)
+  # Native Jellyfin support + Radarr / Sonarr integration.
   # ==========================================================================
-  overseerr:
-    image: sctx/overseerr:latest
-    container_name: overseerr
+  jellyseerr:
+    image: fallenbagel/jellyseerr:latest
+    container_name: jellyseerr
     <<: *common
     ports:
-      - "${OVERSEERR_PORT:-5055}:5055"
+      - "${JELLYSEERR_PORT:-5055}:5055"
     volumes:
-      - overseerr_data:/app/config
+      - jellyseerr_data:/app/config
     networks:
       - arr_net
     depends_on:
+      - jellyfin
       - radarr
       - sonarr
 

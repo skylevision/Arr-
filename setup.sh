@@ -59,7 +59,7 @@ APPDATA_DIRS=(
   lidarr
   readarr
   bazarr
-  overseerr
+  jellyseerr
   jellyfin/config
   jellyfin/cache
   homepage
@@ -176,14 +176,14 @@ write_if_missing "${HP_CONFIG}/services.yaml" "---
           url: http://jellyfin:8096
           key: # paste your Jellyfin API key here
 
-    - Overseerr:
-        icon: overseerr.png
-        href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:${OVERSEERR_PORT:-5055}
+    - Jellyseerr:
+        icon: jellyseerr.png
+        href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:${JELLYSEERR_PORT:-5055}
         description: Request Movies & TV
         widget:
-          type: overseerr
-          url: http://overseerr:5055
-          key: # paste your Overseerr API key here
+          type: jellyseerr
+          url: http://jellyseerr:5055
+          key: # paste your Jellyseerr API key here
 "
 
 write_if_missing "${HP_CONFIG}/widgets.yaml" "---

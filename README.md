@@ -16,7 +16,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 | **Lidarr** | Music collection manager *(optional)* | 8686 |
 | **Readarr** | Book / AudioBook manager *(optional)* | 8787 |
 | **Bazarr** | Subtitle management | 6767 |
-| **Overseerr** | User-facing media request portal | 5055 |
+| **Jellyseerr** | Media request portal *(Overseerr successor, native Jellyfin)* | 5055 |
 | **Jellyfin** | Media server | 8096 |
 | **Homepage** | Unified dashboard | 3000 |
 
@@ -47,7 +47,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
   │  │                   │    Bazarr   │                  │   │
   │  │                   └─────────────┘                  │   │
   │  │  ┌─────────────┐  ┌─────────────┐  ┌──────────┐   │   │
-  │  │  │  Overseerr  │  │  Jellyfin   │  │ Homepage │   │   │
+  │  │  │  Jellyseerr  │  │  Jellyfin   │  │ Homepage │   │   │
   │  │  └─────────────┘  └─────────────┘  └──────────┘   │   │
   │  └────────────────────────────────────────────────────┘   │
   └────────────────────────────────────────────────────────────┘
@@ -72,7 +72,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 │   ├── radarr/
 │   ├── sonarr/
 │   ├── bazarr/
-│   ├── overseerr/
+│   ├── jellyseerr/
 │   ├── jellyfin/
 │   └── homepage/
 └── data/                     ← all media & downloads (single share = hardlinks work!)
@@ -226,11 +226,11 @@ To hide your home IP from torrent trackers, route torrent traffic through a Tail
 1. Open Bazarr (`http://<ip>:6767`) → *Settings → Radarr / Sonarr*
 2. Host: `radarr` / `sonarr`, use the API keys from each service.
 
-### Overseerr
+### Jellyseerr
 
-1. Open Overseerr (`http://<ip>:5055`) → follow the setup wizard
-2. Connect to Jellyfin (host: `jellyfin`, port: `8096`)
-3. Connect to Radarr and Sonarr.
+1. Open Jellyseerr (`http://<ip>:5055`) → follow the setup wizard
+2. Sign in with **Jellyfin** (host: `http://jellyfin:8096`) — Jellyseerr uses Jellyfin as the identity provider
+3. Connect to Radarr (`http://radarr:7878`) and Sonarr (`http://sonarr:8989`) with their API keys.
 
 ### Jellyfin
 
@@ -295,7 +295,7 @@ Or use the **Unraid "Check for Updates"** button in the Docker tab.
 | Lidarr | 8686 | `LIDARR_PORT` (8686) |
 | Readarr | 8787 | `READARR_PORT` (8787) |
 | Bazarr | 6767 | `BAZARR_PORT` (6767) |
-| Overseerr | 5055 | `OVERSEERR_PORT` (5055) |
+| Jellyseerr | 5055 | `JELLYSEERR_PORT` (5055) |
 | Jellyfin HTTP | 8096 | `JELLYFIN_PORT_HTTP` (8096) |
 | Jellyfin HTTPS | 8920 | `JELLYFIN_PORT_HTTPS` (8920) |
 | Homepage | 3000 | `HOMEPAGE_PORT` (3000) |
