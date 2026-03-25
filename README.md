@@ -17,7 +17,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 | **Readarr** | Book / AudioBook manager *(optional)* | 8787 |
 | **Bazarr** | Subtitle management | 6767 |
 | **Seerr** | Media request portal *(Overseerr successor)* | 5055 |
-| **AdGuard Home** | Network-wide DNS ad blocker & parental control | 8080 (UI), 53 (DNS) |
+| **AdGuard Home** | Network-wide DNS ad blocker & parental control | 8081 (UI), 53 (DNS) |
 | **Jellyfin** | Media server | 8096 |
 | **Homepage** | Unified dashboard | 3000 |
 
@@ -118,7 +118,7 @@ cd arr-stack
 
 ```bash
 cp .env.example .env
-nano .env          # fill in VPN credentials, paths, PUID/PGID
+nano .env          # set UNRAID_IP, TS_HOSTNAME, paths, PUID/PGID
 ```
 
 Get your PUID / PGID:
@@ -213,7 +213,7 @@ To hide your home IP from torrent trackers, route torrent traffic through a Tail
 ### Radarr / Sonarr — Download Clients
 
 1. *Settings → Download Clients → +*
-2. **qBittorrent**: host `gluetun`, port `8080`
+2. **qBittorrent**: host `qbittorrent`, port `8080`
 3. **SABnzbd**: host `sabnzbd`, port `8080`
 
 ### Radarr — Root Folder
@@ -239,7 +239,7 @@ To hide your home IP from torrent trackers, route torrent traffic through a Tail
 
 1. On **first start**, open the setup wizard at `http://<ip>:3001` (mapped to `ADGUARD_SETUP_PORT`)
 2. Follow the wizard — set admin username/password and configure the listen interfaces
-3. After the wizard completes, the web UI is at `http://<ip>:8080` (`ADGUARD_WEBUI_PORT`)
+3. After the wizard completes, the web UI is at `http://<ip>:8081` (`ADGUARD_WEBUI_PORT`)
 4. Go to *Settings → DNS settings* to configure upstream servers (default: `1.1.1.1`, `8.8.8.8`)
 5. Point your **router's primary DNS** to `<UNRAID_IP>` to filter ads network-wide
 
@@ -315,7 +315,7 @@ Or use the **Unraid "Check for Updates"** button in the Docker tab.
 | Bazarr | 6767 | `BAZARR_PORT` (6767) |
 | Seerr | 5055 | `SEERR_PORT` (5055) |
 | AdGuard Setup | 3000 | `ADGUARD_SETUP_PORT` (3001) — first start only |
-| AdGuard UI | 80 | `ADGUARD_WEBUI_PORT` (8080) |
+| AdGuard UI | 80 | `ADGUARD_WEBUI_PORT` (8081) |
 | AdGuard DNS | 53 | bound to `UNRAID_IP` |
 | Jellyfin HTTP | 8096 | `JELLYFIN_PORT_HTTP` (8096) |
 | Jellyfin HTTPS | 8920 | `JELLYFIN_PORT_HTTPS` (8920) |

@@ -281,7 +281,7 @@ printf "    %-20s http://<unraid-ip>:%s\n" "Radarr"        "${RADARR_PORT:-7878}
 printf "    %-20s http://<unraid-ip>:%s\n" "Sonarr"        "${SONARR_PORT:-8989}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Bazarr"        "${BAZARR_PORT:-6767}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Seerr"          "${SEERR_PORT:-5055}"
-printf "    %-20s http://<unraid-ip>:%s\n" "AdGuard Home"  "${ADGUARD_WEBUI_PORT:-8080}"
+printf "    %-20s http://<unraid-ip>:%s\n" "AdGuard Home"  "${ADGUARD_WEBUI_PORT:-8081}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Jellyfin"      "${JELLYFIN_PORT_HTTP:-8096}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Homepage"      "${HOMEPAGE_PORT:-3000}"
 echo ""
