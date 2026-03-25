@@ -66,7 +66,8 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 ```
 /mnt/user/
 ├── appdata/                  ← container config (fast cache drive recommended)
-│   ├── gluetun/
+│   ├── tailscale/
+│   ├── tailscale-vpn/
 │   ├── qbittorrent/
 │   ├── sabnzbd/
 │   ├── prowlarr/
