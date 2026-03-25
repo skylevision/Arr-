@@ -12,7 +12,7 @@
 #   Books     : Readarr       (optional — profile: readarr)
 #   Subtitles : Bazarr
 #   Requests  : Seerr
-#   DNS       : Pi-hole
+#   DNS       : AdGuard Home
 #   Player    : Jellyfin
 #   Dashboard : Homepage
 # ============================================================
@@ -131,19 +131,19 @@ volumes:
       o: bind
       device: ${APPDATA}/seerr
 
-  pihole_data:
+  adguard_work:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: ${APPDATA}/pihole/data
+      device: ${APPDATA}/adguardhome/work
 
-  pihole_dnsmasq:
+  adguard_conf:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: ${APPDATA}/pihole/dnsmasq.d
+      device: ${APPDATA}/adguardhome/conf
 
   jellyfin_config:
     driver: local
@@ -429,38 +429,34 @@ services:
       - sonarr
 
   # ==========================================================================
-  # PI-HOLE — Network-wide DNS ad blocker
+  # ADGUARD HOME — Network-wide DNS ad blocker & parental control
   #
-  # Port 53 is bound to UNRAID_IP so it doesn't conflict with the host's
-  # own resolver. Set UNRAID_IP in .env to your Unraid server's LAN IP.
+  # Port 53 is bound to UNRAID_IP to avoid conflicting with Unraid's own
+  # resolver on 127.0.0.1:53.  Set UNRAID_IP in .env to your server's LAN IP.
   #
-  # Point your router's DNS (or individual clients) to <UNRAID_IP> to use
-  # Pi-hole for the whole network, or just use it for the containers below
-  # by setting dns: in each service.
+  # First start: open the setup wizard at http://<unraid-ip>:3000
+  # After setup, the web UI moves to port 80 inside the container —
+  # mapped to ADGUARD_WEBUI_PORT (default 8080) on the host.
+  # Note: 3000 is also used by Homepage — use ADGUARD_SETUP_PORT to avoid
+  # a conflict during the one-time setup wizard (default 3001).
   #
-  # Web UI:  http://<unraid-ip>:PIHOLE_WEBUI_PORT/admin
+  # Point your router's primary DNS to <UNRAID_IP> to filter ads network-wide.
   # ==========================================================================
-  pihole:
-    image: pihole/pihole:latest
-    container_name: pihole
+  adguardhome:
+    image: adguard/adguardhome:latest
+    container_name: adguardhome
     restart: unless-stopped
     ports:
-      # DNS — bound to the Unraid IP to avoid conflicting with the host resolver
+      # DNS — bound to Unraid IP to avoid host resolver conflict
       - "${UNRAID_IP}:53:53/tcp"
       - "${UNRAID_IP}:53:53/udp"
-      # Web UI
-      - "${PIHOLE_WEBUI_PORT:-8053}:80"
-    environment:
-      - TZ=${TZ:-Europe/Berlin}
-      - WEBPASSWORD=${PIHOLE_WEBPASSWORD:-changeme}
-      # Upstream DNS servers used by Pi-hole itself
-      - PIHOLE_DNS_1=${PIHOLE_UPSTREAM_DNS1:-1.1.1.1}
-      - PIHOLE_DNS_2=${PIHOLE_UPSTREAM_DNS2:-8.8.8.8}
-      # Hostname shown in Pi-hole UI
-      - VIRTUAL_HOST=pihole
+      # One-time setup wizard (only needed on first start)
+      - "${ADGUARD_SETUP_PORT:-3001}:3000"
+      # Web UI (after initial setup)
+      - "${ADGUARD_WEBUI_PORT:-8080}:80"
     volumes:
-      - pihole_data:/etc/pihole
-      - pihole_dnsmasq:/etc/dnsmasq.d
+      - adguard_work:/opt/adguardhome/work
+      - adguard_conf:/opt/adguardhome/conf
     cap_add:
       - NET_ADMIN
     networks:

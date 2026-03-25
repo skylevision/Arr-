@@ -17,7 +17,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 | **Readarr** | Book / AudioBook manager *(optional)* | 8787 |
 | **Bazarr** | Subtitle management | 6767 |
 | **Seerr** | Media request portal *(Overseerr successor)* | 5055 |
-| **Pi-hole** | Network-wide DNS ad blocker | 8053 (UI), 53 (DNS) |
+| **AdGuard Home** | Network-wide DNS ad blocker & parental control | 8080 (UI), 53 (DNS) |
 | **Jellyfin** | Media server | 8096 |
 | **Homepage** | Unified dashboard | 3000 |
 
@@ -48,7 +48,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
   │  │                   │    Bazarr   │                  │   │
   │  │                   └─────────────┘                  │   │
   │  │  ┌─────────────┐  ┌─────────────┐  ┌──────────┐   │   │
-  │  │  │    Seerr     │  │  Pi-hole    │  │ Jellyfin │   │   │
+  │  │  │    Seerr     │  │ AdGuard Home│  │ Jellyfin │   │   │
   │  │  └─────────────┘  └─────────────┘  └──────────┘   │   │
   │  └────────────────────────────────────────────────────┘   │
   └────────────────────────────────────────────────────────────┘
@@ -74,7 +74,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 │   ├── sonarr/
 │   ├── bazarr/
 │   ├── seerr/
-│   ├── pihole/
+│   ├── adguardhome/
 │   ├── jellyfin/
 │   └── homepage/
 └── data/                     ← all media & downloads (single share = hardlinks work!)
@@ -234,16 +234,20 @@ To hide your home IP from torrent trackers, route torrent traffic through a Tail
 2. Connect your media server (Jellyfin: `http://jellyfin:8096`, or Plex/Emby)
 3. Connect to Radarr (`http://radarr:7878`) and Sonarr (`http://sonarr:8989`) with their API keys.
 
-### Pi-hole
+### AdGuard Home
 
-1. Open Pi-hole (`http://<ip>:8053/admin`) — password is `PIHOLE_WEBPASSWORD` from `.env`
-2. Go to *Settings → DNS* to verify upstream servers
-3. Point your **router's DNS** to `<UNRAID_IP>` to filter ads network-wide, or configure individual devices
-4. Pi-hole API key for the Homepage widget: *Settings → API / Web interface → Show API token*
+1. On **first start**, open the setup wizard at `http://<ip>:3001` (mapped to `ADGUARD_SETUP_PORT`)
+2. Follow the wizard — set admin username/password and configure the listen interfaces
+3. After the wizard completes, the web UI is at `http://<ip>:8080` (`ADGUARD_WEBUI_PORT`)
+4. Go to *Settings → DNS settings* to configure upstream servers (default: `1.1.1.1`, `8.8.8.8`)
+5. Point your **router's primary DNS** to `<UNRAID_IP>` to filter ads network-wide
 
 > **Port 53 on Unraid**: Port 53 is bound to `UNRAID_IP` (your server's LAN IP) to avoid
-> conflicts with Unraid's own DNS resolver on `127.0.0.1:53`.
+> conflicts with Unraid's own resolver on `127.0.0.1:53`.
 > Make sure `UNRAID_IP` in `.env` matches your server's actual LAN IP.
+
+> **Port conflict note**: The setup wizard uses port 3001 by default (`ADGUARD_SETUP_PORT`)
+> to avoid clashing with Homepage on port 3000. You only need port 3001 once during setup.
 
 ### Jellyfin
 
@@ -309,8 +313,9 @@ Or use the **Unraid "Check for Updates"** button in the Docker tab.
 | Readarr | 8787 | `READARR_PORT` (8787) |
 | Bazarr | 6767 | `BAZARR_PORT` (6767) |
 | Seerr | 5055 | `SEERR_PORT` (5055) |
-| Pi-hole UI | 80 | `PIHOLE_WEBUI_PORT` (8053) |
-| Pi-hole DNS | 53 | bound to `UNRAID_IP` |
+| AdGuard Setup | 3000 | `ADGUARD_SETUP_PORT` (3001) — first start only |
+| AdGuard UI | 80 | `ADGUARD_WEBUI_PORT` (8080) |
+| AdGuard DNS | 53 | bound to `UNRAID_IP` |
 | Jellyfin HTTP | 8096 | `JELLYFIN_PORT_HTTP` (8096) |
 | Jellyfin HTTPS | 8920 | `JELLYFIN_PORT_HTTPS` (8920) |
 | Homepage | 3000 | `HOMEPAGE_PORT` (3000) |

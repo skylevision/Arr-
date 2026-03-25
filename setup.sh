@@ -60,8 +60,8 @@ APPDATA_DIRS=(
   readarr
   bazarr
   seerr
-  pihole/data
-  pihole/dnsmasq.d
+  adguardhome/work
+  adguardhome/conf
   jellyfin/config
   jellyfin/cache
   homepage
@@ -169,14 +169,15 @@ write_if_missing "${HP_CONFIG}/services.yaml" "---
           key: # paste your SABnzbd API key here
 
 - DNS:
-    - Pi-hole:
-        icon: pi-hole.png
-        href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:${PIHOLE_WEBUI_PORT:-8053}/admin
+    - AdGuard Home:
+        icon: adguard-home.png
+        href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:${ADGUARD_WEBUI_PORT:-8080}
         description: Network DNS & Ad Blocker
         widget:
-          type: pihole
-          url: http://pihole:80
-          key: # paste your Pi-hole API key here (Settings → API)
+          type: adguard
+          url: http://adguardhome:80
+          username: # AdGuard admin username
+          password: # AdGuard admin password
 
 - Media:
     - Jellyfin:
@@ -236,7 +237,6 @@ check_var() {
 
 check_var TS_HOSTNAME
 check_var UNRAID_IP
-check_var PIHOLE_WEBPASSWORD
 
 # TS_AUTHKEY is optional (interactive login via URL is also valid)
 if [[ -z "${TS_AUTHKEY:-}" ]]; then
@@ -281,7 +281,7 @@ printf "    %-20s http://<unraid-ip>:%s\n" "Radarr"        "${RADARR_PORT:-7878}
 printf "    %-20s http://<unraid-ip>:%s\n" "Sonarr"        "${SONARR_PORT:-8989}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Bazarr"        "${BAZARR_PORT:-6767}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Seerr"          "${SEERR_PORT:-5055}"
-printf "    %-20s http://<unraid-ip>:%s/admin\n" "Pi-hole" "${PIHOLE_WEBUI_PORT:-8053}"
+printf "    %-20s http://<unraid-ip>:%s\n" "AdGuard Home"  "${ADGUARD_WEBUI_PORT:-8080}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Jellyfin"      "${JELLYFIN_PORT_HTTP:-8096}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Homepage"      "${HOMEPAGE_PORT:-3000}"
 echo ""
