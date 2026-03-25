@@ -2,14 +2,14 @@
 # Unraid Arr Stack — docker-compose.yml
 # ============================================================
 # Services included:
-#   VPN       : Gluetun (WireGuard / OpenVPN)
-#   Torrents  : qBittorrent  (routed through VPN)
+#   VPN       : Tailscale  (remote access + optional exit node)
+#   Torrents  : qBittorrent  (optionally routed through Tailscale exit node)
 #   Usenet    : SABnzbd
 #   Indexers  : Prowlarr
 #   Movies    : Radarr
 #   TV        : Sonarr
-#   Music     : Lidarr        (optional — LIDARR_ENABLED)
-#   Books     : Readarr       (optional — READARR_ENABLED)
+#   Music     : Lidarr        (optional — profile: lidarr)
+#   Books     : Readarr       (optional — profile: readarr)
 #   Subtitles : Bazarr
 #   Requests  : Overseerr
 #   Player    : Jellyfin
@@ -19,6 +19,22 @@
 #   1. cp .env.example .env  &&  edit .env
 #   2. bash setup.sh          (creates all required directories)
 #   3. docker compose up -d
+# ============================================================
+#
+# Tailscale — two modes:
+#
+#   A) Remote Access only (default)
+#      All services are reachable via your Tailscale IP (100.x.x.x)
+#      without opening any router ports.
+#      qBittorrent uses its own network connection.
+#
+#   B) Remote Access + Exit Node for torrents
+#      Set TS_EXIT_NODE in .env to the Tailscale IP of a node that
+#      advertises itself as an exit node (e.g. a VPS or another machine).
+#      qBittorrent will then use the profile "vpn" and share the
+#      tailscale-vpn sidecar's network — all torrent traffic exits
+#      through that node.
+#      Start with: docker compose --profile vpn up -d
 # ============================================================
 
 x-common: &common
@@ -37,12 +53,19 @@ networks:
 # VOLUMES — all data lives on the Unraid array
 # ---------------------------------------------------------------------------
 volumes:
-  gluetun_data:
+  tailscale_data:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: ${APPDATA}/gluetun
+      device: ${APPDATA}/tailscale
+
+  tailscale_vpn_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/tailscale-vpn
 
   qbittorrent_data:
     driver: local
@@ -131,59 +154,105 @@ volumes:
 # ---------------------------------------------------------------------------
 services:
   # ==========================================================================
-  # GLUETUN — VPN gateway
-  # All torrent traffic is routed through this container.
-  # qBittorrent uses network_mode: service:gluetun so it shares the VPN tunnel.
+  # TAILSCALE — Remote access VPN
+  #
+  # Runs in host network mode so it can reach every published container port
+  # on the Unraid host. All services become available at your Tailscale IP
+  # (100.x.x.x) without any router port-forwarding.
+  #
+  # First start: the container prints an auth URL to its logs — open it in
+  # your browser to register this node in your Tailnet:
+  #   docker logs tailscale
+  #
+  # Or set TS_AUTHKEY in .env (reusable / pre-auth key from admin.tailscale.com).
   # ==========================================================================
-  gluetun:
-    image: qmcgaw/gluetun:latest
-    container_name: gluetun
-    <<: *common
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: tailscale
+    hostname: ${TS_HOSTNAME:-arr-stack}
+    restart: unless-stopped
+    network_mode: host
     cap_add:
       - NET_ADMIN
+      - NET_RAW
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - tailscale_data:/var/lib/tailscale
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      # Optional: expose services via Tailscale Serve (HTTPS on Tailnet)
+      # - TS_SERVE_CONFIG=/var/lib/tailscale/serve.json
+      # Extra flags — e.g. --advertise-tags=tag:server
+      - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:-}
+    healthcheck:
+      test: ["CMD-SHELL", "tailscale status --json | grep -q '\"BackendState\":\"Running\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # ==========================================================================
+  # TAILSCALE VPN SIDECAR — Exit-node gateway for qBittorrent  (optional)
+  #
+  # Only started when using the "vpn" profile:
+  #   docker compose --profile vpn up -d
+  #
+  # Requires a Tailscale exit node elsewhere on your Tailnet (a VPS, etc.).
+  # Set TS_EXIT_NODE in .env to that node's Tailscale IP or hostname.
+  # ==========================================================================
+  tailscale-vpn:
+    image: tailscale/tailscale:latest
+    container_name: tailscale-vpn
+    hostname: ${TS_HOSTNAME:-arr-stack}-vpn
+    restart: unless-stopped
+    profiles:
+      - vpn
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
     devices:
       - /dev/net/tun:/dev/net/tun
     ports:
-      # qBittorrent Web UI is exposed here because qbittorrent shares gluetun's network
+      # qBittorrent Web UI — published here because qbittorrent shares this network
       - "${QBITTORRENT_WEBUI_PORT:-8080}:8080"
     volumes:
-      - gluetun_data:/gluetun
+      - tailscale_vpn_data:/var/lib/tailscale
     environment:
-      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER:-mullvad}
-      - VPN_TYPE=${VPN_TYPE:-wireguard}
-      # WireGuard
-      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY:-}
-      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES:-}
-      # OpenVPN
-      - OPENVPN_USER=${OPENVPN_USER:-}
-      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD:-}
-      # Optional server selection
-      - SERVER_COUNTRIES=${SERVER_COUNTRIES:-}
-      - SERVER_CITIES=${SERVER_CITIES:-}
-      - TZ=${TZ:-Europe/Berlin}
-      # Allow LAN subnets to bypass VPN (Unraid default subnet)
-      - FIREWALL_OUTBOUND_SUBNETS=192.168.0.0/16,172.16.0.0/12,10.0.0.0/8
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      # Route all traffic through the configured exit node
+      - TS_EXTRA_ARGS=--exit-node=${TS_EXIT_NODE:-} --exit-node-allow-lan-access=true
     networks:
       - arr_net
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- https://am.i.mullvad.net/connected 2>/dev/null | grep -q 'connected' || exit 1"]
-      interval: 60s
+      test: ["CMD-SHELL", "tailscale status --json | grep -q '\"BackendState\":\"Running\"'"]
+      interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 30s
+      retries: 5
+      start_period: 15s
 
   # ==========================================================================
-  # qBITTORRENT — Torrent client (via VPN)
+  # qBITTORRENT — Torrent client
+  #
+  # Mode A — Direct (default):
+  #   Ports and network are set below.  Traffic leaves via the host's
+  #   normal internet connection.  Services reach qBittorrent on arr_net.
+  #
+  # Mode B — Exit-node VPN:
+  #   1. Start the stack with: docker compose --profile vpn up -d
+  #   2. In this service: comment out the `ports` and `networks` blocks,
+  #      and add instead:
+  #        network_mode: "service:tailscale-vpn"
+  #      (tailscale-vpn publishes the port and provides the exit-node route)
   # ==========================================================================
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
     <<: *common
-    # Share gluetun's network so all traffic goes through VPN
-    network_mode: "service:gluetun"
-    depends_on:
-      gluetun:
-        condition: service_healthy
     volumes:
       - qbittorrent_data:/config
       - ${DATA}/downloads/torrents:/downloads/torrents
@@ -192,7 +261,10 @@ services:
       - PGID=${PGID:-1000}
       - TZ=${TZ:-Europe/Berlin}
       - WEBUI_PORT=8080
-    # NOTE: No ports here — they are published by gluetun above
+    ports:
+      - "${QBITTORRENT_WEBUI_PORT:-8080}:8080"
+    networks:
+      - arr_net
 
   # ==========================================================================
   # SABnzbd — Usenet downloader

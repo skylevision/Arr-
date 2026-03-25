@@ -6,8 +6,9 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 
 | Service | Purpose | Default Port |
 |---|---|---|
-| **Gluetun** | VPN gateway (WireGuard / OpenVPN) | — |
-| **qBittorrent** | Torrent client — traffic routed through VPN | 8080 |
+| **Tailscale** | Remote access VPN (mesh) | — |
+| **Tailscale VPN** | Exit-node sidecar for qBittorrent *(optional)* | — |
+| **qBittorrent** | Torrent client | 8080 |
 | **SABnzbd** | Usenet downloader | 8090 |
 | **Prowlarr** | Indexer & tracker manager | 9696 |
 | **Radarr** | Movie collection manager | 7878 |
@@ -22,31 +23,42 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 ## Architecture
 
 ```
-                          ┌─────────────┐
-                          │   Gluetun   │  ← VPN tunnel
-                          │    (VPN)    │
-                          └──────┬──────┘
-                                 │ network_mode: service:gluetun
-                          ┌──────▼──────┐
-                          │qBittorrent  │  ← all torrent traffic encrypted
-                          └──────┬──────┘
-                                 │
-          ┌──────────────────────┼───────────────────────┐
-          │                      │                       │
-   ┌──────▼──────┐        ┌──────▼──────┐       ┌───────▼──────┐
-   │   Radarr    │        │   Sonarr    │       │   Prowlarr   │
-   │  (movies)   │        │    (TV)     │       │  (indexers)  │
-   └──────┬──────┘        └──────┬──────┘       └──────────────┘
-          │                      │
-   ┌──────▼──────────────────────▼──────┐
-   │              Bazarr                │  ← subtitles
-   └────────────────────────────────────┘
-          │                      │
-   ┌──────▼──────┐        ┌──────▼──────┐
-   │  Overseerr  │        │  Jellyfin   │  ← media playback
-   │ (requests)  │        │             │
-   └─────────────┘        └─────────────┘
+  ┌────────────────────────────────────────────────────────────┐
+  │                    Unraid Host                             │
+  │                                                            │
+  │  ┌─────────────────────────┐                              │
+  │  │  Tailscale  (host net)  │  ← your Tailnet (100.x.x.x) │
+  │  │  hostname: arr-stack    │    remote access, no ports   │
+  │  └─────────────────────────┘    needed in router          │
+  │                                                            │
+  │  ┌────────────────────────────────────────────────────┐   │
+  │  │                   arr_net (bridge)                 │   │
+  │  │                                                    │   │
+  │  │  ┌──────────────┐   ┌──────────────────────────┐  │   │
+  │  │  │ qBittorrent  │   │  tailscale-vpn (optional)│  │   │
+  │  │  │  :8080       │   │  exit-node → VPS/server  │  │   │
+  │  │  └──────┬───────┘   └──────────────────────────┘  │   │
+  │  │         │           (profile: vpn — see below)     │   │
+  │  │  ┌──────▼──────┐  ┌──────────────┐  ┌──────────┐  │   │
+  │  │  │   Radarr    │  │    Sonarr    │  │ Prowlarr │  │   │
+  │  │  └──────┬──────┘  └──────┬───────┘  └──────────┘  │   │
+  │  │         └────────────────┼──────────────────────   │   │
+  │  │                   ┌──────▼──────┐                  │   │
+  │  │                   │    Bazarr   │                  │   │
+  │  │                   └─────────────┘                  │   │
+  │  │  ┌─────────────┐  ┌─────────────┐  ┌──────────┐   │   │
+  │  │  │  Overseerr  │  │  Jellyfin   │  │ Homepage │   │   │
+  │  │  └─────────────┘  └─────────────┘  └──────────┘   │   │
+  │  └────────────────────────────────────────────────────┘   │
+  └────────────────────────────────────────────────────────────┘
 ```
+
+### Tailscale modes
+
+| Mode | Command | qBittorrent traffic |
+|---|---|---|
+| **Remote access only** (default) | `docker compose up -d` | Direct internet |
+| **Exit-node VPN** | `docker compose --profile vpn up -d` | Routed through exit node |
 
 ## Directory Structure
 
@@ -88,7 +100,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 
 - Unraid 6.10+ with the **Compose Manager** plugin installed
   *(Apps → search "Compose Manager" → install)*
-- A VPN subscription (Mullvad, ProtonVPN, NordVPN, etc.)
+- A free [Tailscale account](https://login.tailscale.com/start) (free tier supports up to 100 devices)
 
 ### 2. Clone / copy files
 
@@ -137,6 +149,55 @@ docker compose --profile lidarr up -d lidarr
 # Start Readarr
 docker compose --profile readarr up -d readarr
 ```
+
+## Tailscale Setup
+
+### Remote Access (all modes)
+
+On **first start** the `tailscale` container needs to authenticate:
+
+```bash
+# Option A — interactive (no TS_AUTHKEY needed):
+docker compose up -d tailscale
+docker logs tailscale   # opens a URL — paste it in your browser
+
+# Option B — pre-auth key (recommended for automation):
+# 1. Go to https://login.tailscale.com/admin/settings/keys
+# 2. Create a reusable key, paste it as TS_AUTHKEY in .env
+# 3. docker compose up -d   (authenticates automatically)
+```
+
+Once authenticated, all services are reachable at `http://<tailscale-ip>:<port>` from any device on your Tailnet — phone, laptop, etc. — without port forwarding.
+
+### Exit Node for qBittorrent (optional)
+
+To hide your home IP from torrent trackers, route torrent traffic through a Tailscale exit node:
+
+1. Set up an exit node (a VPS, a cloud VM, another home machine):
+   ```bash
+   # On the exit node machine:
+   tailscale up --advertise-exit-node
+   # Then approve it in the Tailscale admin console under Machines
+   ```
+
+2. Set `TS_EXIT_NODE` in `.env` to that node's Tailscale IP or name:
+   ```
+   TS_EXIT_NODE=100.64.0.5
+   ```
+
+3. Start the stack with the `vpn` profile:
+   ```bash
+   docker compose --profile vpn up -d
+   ```
+
+4. In `docker-compose.yml`, switch `qbittorrent` to use the VPN sidecar network
+   (see the comments inside the `qbittorrent` service block).
+
+> **Note**: Tailscale is a mesh VPN — perfect for remote access. For maximum torrent
+> privacy you still need an exit node (your own VPS or a Tailscale-connected commercial
+> VPN server). Mullvad and other providers are adding Tailscale exit node support.
+
+---
 
 ## First-Time Configuration
 
@@ -214,8 +275,10 @@ Or use the **Unraid "Check for Updates"** button in the Docker tab.
 
 | Problem | Solution |
 |---|---|
-| qBittorrent unreachable | Check `docker logs gluetun` — VPN must connect first |
-| VPN not connecting | Verify credentials in `.env`; check `SERVER_COUNTRIES` spelling |
+| Can't reach services via Tailscale | Check `docker logs tailscale` — look for auth URL or errors |
+| Tailscale shows "Needs login" | Run `docker exec tailscale tailscale login` or set `TS_AUTHKEY` |
+| Exit node not working | Ensure the exit node is approved in the Tailscale admin console |
+| qBittorrent unreachable | Check that the container started and port 8080 is not already in use |
 | No hardlinks | Ensure Radarr/Sonarr and download client all write under the same `/data` mount |
 | Permission errors | Check that `PUID`/`PGID` in `.env` match the owner of your Unraid shares |
 | Prowlarr sync fails | Use internal Docker hostnames (`radarr`, `sonarr`) not `localhost` or IP |

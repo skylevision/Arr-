@@ -49,7 +49,8 @@ DATA="${DATA:-/mnt/user/data}"
 info "Creating appdata directories under ${APPDATA} ..."
 
 APPDATA_DIRS=(
-  gluetun
+  tailscale
+  tailscale-vpn
   qbittorrent
   sabnzbd
   prowlarr
@@ -149,10 +150,10 @@ write_if_missing "${HP_CONFIG}/services.yaml" "---
     - qBittorrent:
         icon: qbittorrent.png
         href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:${QBITTORRENT_WEBUI_PORT:-8080}
-        description: Torrent Client (via VPN)
+        description: Torrent Client
         widget:
           type: qbittorrent
-          url: http://gluetun:8080
+          url: http://qbittorrent:8080
           username: admin
           password: adminadmin
 
@@ -221,15 +222,20 @@ check_var() {
   fi
 }
 
-check_var VPN_SERVICE_PROVIDER
-check_var VPN_TYPE
+check_var TS_HOSTNAME
 
-if [[ "${VPN_TYPE:-wireguard}" == "wireguard" ]]; then
-  check_var WIREGUARD_PRIVATE_KEY
-  check_var WIREGUARD_ADDRESSES
+# TS_AUTHKEY is optional (interactive login via URL is also valid)
+if [[ -z "${TS_AUTHKEY:-}" ]]; then
+  warn "  TS_AUTHKEY is not set — on first start, run 'docker logs tailscale'"
+  warn "  and open the printed URL to authenticate this node interactively."
+fi
+
+# Warn if vpn profile is intended but exit node is missing
+if [[ -n "${TS_EXIT_NODE:-}" ]]; then
+  success "Exit node configured: ${TS_EXIT_NODE} (start with --profile vpn)"
 else
-  check_var OPENVPN_USER
-  check_var OPENVPN_PASSWORD
+  info "  TS_EXIT_NODE is not set — qBittorrent will use direct internet."
+  info "  Set TS_EXIT_NODE and use --profile vpn to route torrents via an exit node."
 fi
 
 if [[ "${MISSING}" -eq 1 ]]; then
