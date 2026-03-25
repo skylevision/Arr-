@@ -11,7 +11,7 @@
 #   Music     : Lidarr        (optional — profile: lidarr)
 #   Books     : Readarr       (optional — profile: readarr)
 #   Subtitles : Bazarr
-#   Requests  : Overseerr
+#   Requests  : Seerr
 #   Player    : Jellyfin
 #   Dashboard : Homepage
 # ============================================================
@@ -123,12 +123,12 @@ volumes:
       o: bind
       device: ${APPDATA}/bazarr
 
-  jellyseerr_data:
+  seerr_data:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: ${APPDATA}/jellyseerr
+      device: ${APPDATA}/seerr
 
   jellyfin_config:
     driver: local
@@ -392,17 +392,20 @@ services:
       - sonarr
 
   # ==========================================================================
-  # JELLYSEERR — User-facing media request portal (Overseerr successor)
-  # Native Jellyfin support + Radarr / Sonarr integration.
+  # SEERR — User-facing media request portal
+  # Successor to Overseerr — supports Jellyfin, Plex, Radarr, Sonarr.
+  # Runs as the internal node user (no PUID/PGID).
   # ==========================================================================
-  jellyseerr:
-    image: fallenbagel/jellyseerr:latest
-    container_name: jellyseerr
-    <<: *common
+  seerr:
+    image: seerr/seerr:latest
+    container_name: seerr
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-Europe/Berlin}
     ports:
-      - "${JELLYSEERR_PORT:-5055}:5055"
+      - "${SEERR_PORT:-5055}:5055"
     volumes:
-      - jellyseerr_data:/app/config
+      - seerr_data:/app/config
     networks:
       - arr_net
     depends_on:

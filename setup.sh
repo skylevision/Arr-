@@ -59,7 +59,7 @@ APPDATA_DIRS=(
   lidarr
   readarr
   bazarr
-  jellyseerr
+  seerr
   jellyfin/config
   jellyfin/cache
   homepage
@@ -176,14 +176,14 @@ write_if_missing "${HP_CONFIG}/services.yaml" "---
           url: http://jellyfin:8096
           key: # paste your Jellyfin API key here
 
-    - Jellyseerr:
-        icon: jellyseerr.png
-        href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:${JELLYSEERR_PORT:-5055}
+    - Seerr:
+        icon: overseerr.png
+        href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:${SEERR_PORT:-5055}
         description: Request Movies & TV
         widget:
-          type: jellyseerr
-          url: http://jellyseerr:5055
-          key: # paste your Jellyseerr API key here
+          type: overseerr
+          url: http://seerr:5055
+          key: # paste your Seerr API key here
 "
 
 write_if_missing "${HP_CONFIG}/widgets.yaml" "---
@@ -266,7 +266,7 @@ printf "    %-20s http://<unraid-ip>:%s\n" "Prowlarr"      "${PROWLARR_PORT:-969
 printf "    %-20s http://<unraid-ip>:%s\n" "Radarr"        "${RADARR_PORT:-7878}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Sonarr"        "${SONARR_PORT:-8989}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Bazarr"        "${BAZARR_PORT:-6767}"
-printf "    %-20s http://<unraid-ip>:%s\n" "Overseerr"     "${OVERSEERR_PORT:-5055}"
+printf "    %-20s http://<unraid-ip>:%s\n" "Seerr"          "${SEERR_PORT:-5055}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Jellyfin"      "${JELLYFIN_PORT_HTTP:-8096}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Homepage"      "${HOMEPAGE_PORT:-3000}"
 echo ""
