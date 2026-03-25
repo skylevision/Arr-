@@ -50,8 +50,6 @@ info "Creating appdata directories under ${APPDATA} ..."
 
 APPDATA_DIRS=(
   tailscale
-  tailscale-vpn
-  qbittorrent
   sabnzbd
   prowlarr
   radarr
@@ -84,8 +82,6 @@ DATA_DIRS=(
   media/tv
   media/music
   media/books
-  downloads/torrents/incomplete
-  downloads/torrents/complete
   downloads/usenet/incomplete
   downloads/usenet/complete
 )
@@ -149,16 +145,6 @@ write_if_missing "${HP_CONFIG}/services.yaml" "---
         description: Subtitle Manager
 
 - Download Clients:
-    - qBittorrent:
-        icon: qbittorrent.png
-        href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:${QBITTORRENT_WEBUI_PORT:-8080}
-        description: Torrent Client
-        widget:
-          type: qbittorrent
-          url: http://qbittorrent:8080
-          username: admin
-          password: adminadmin
-
     - SABnzbd:
         icon: sabnzbd.png
         href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:${SABNZBD_PORT:-8090}
@@ -245,12 +231,6 @@ if [[ -z "${TS_AUTHKEY:-}" ]]; then
 fi
 
 # Warn if vpn profile is intended but exit node is missing
-if [[ -n "${TS_EXIT_NODE:-}" ]]; then
-  success "Exit node configured: ${TS_EXIT_NODE} (start with --profile vpn)"
-else
-  info "  TS_EXIT_NODE is not set — qBittorrent will use direct internet."
-  info "  Set TS_EXIT_NODE and use --profile vpn to route torrents via an exit node."
-fi
 
 if [[ "${MISSING}" -eq 1 ]]; then
   warn "One or more variables need attention in .env before starting."
@@ -274,7 +254,6 @@ echo "     Lidarr  (music):  docker compose --profile lidarr  up -d lidarr"
 echo "     Readarr (books):  docker compose --profile readarr up -d readarr"
 echo ""
 echo "  Service ports:"
-printf "    %-20s http://<unraid-ip>:%s\n" "qBittorrent"   "${QBITTORRENT_WEBUI_PORT:-8080}"
 printf "    %-20s http://<unraid-ip>:%s\n" "SABnzbd"       "${SABNZBD_PORT:-8090}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Prowlarr"      "${PROWLARR_PORT:-9696}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Radarr"        "${RADARR_PORT:-7878}"

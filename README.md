@@ -7,8 +7,6 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 | Service | Purpose | Default Port |
 |---|---|---|
 | **Tailscale** | Remote access VPN (mesh) | — |
-| **Tailscale VPN** | Exit-node sidecar for qBittorrent *(optional)* | — |
-| **qBittorrent** | Torrent client | 8080 |
 | **SABnzbd** | Usenet downloader | 8090 |
 | **Prowlarr** | Indexer & tracker manager | 9696 |
 | **Radarr** | Movie collection manager | 7878 |
@@ -35,11 +33,9 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
   │  ┌────────────────────────────────────────────────────┐   │
   │  │                   arr_net (bridge)                 │   │
   │  │                                                    │   │
-  │  │  ┌──────────────┐   ┌──────────────────────────┐  │   │
-  │  │  │ qBittorrent  │   │  tailscale-vpn (optional)│  │   │
-  │  │  │  :8080       │   │  exit-node → VPS/server  │  │   │
-  │  │  └──────┬───────┘   └──────────────────────────┘  │   │
-  │  │         │           (profile: vpn — see below)     │   │
+  │  │  ┌──────────────┐                                  │   │
+  │  │  │   SABnzbd    │  ← Usenet downloader             │   │
+  │  │  └──────┬───────┘                                  │   │
   │  │  ┌──────▼──────┐  ┌──────────────┐  ┌──────────┐  │   │
   │  │  │   Radarr    │  │    Sonarr    │  │ Prowlarr │  │   │
   │  │  └──────┬──────┘  └──────┬───────┘  └──────────┘  │   │
@@ -54,21 +50,12 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
   └────────────────────────────────────────────────────────────┘
 ```
 
-### Tailscale modes
-
-| Mode | Command | qBittorrent traffic |
-|---|---|---|
-| **Remote access only** (default) | `docker compose up -d` | Direct internet |
-| **Exit-node VPN** | `docker compose --profile vpn up -d` | Routed through exit node |
-
 ## Directory Structure
 
 ```
 /mnt/user/
 ├── appdata/                  ← container config (fast cache drive recommended)
 │   ├── tailscale/
-│   ├── tailscale-vpn/
-│   ├── qbittorrent/
 │   ├── sabnzbd/
 │   ├── prowlarr/
 │   ├── radarr/
@@ -80,9 +67,6 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 │   └── homepage/
 └── data/                     ← all media & downloads (single share = hardlinks work!)
     ├── downloads/
-    │   ├── torrents/
-    │   │   ├── incomplete/
-    │   │   └── complete/
     │   └── usenet/
     │       ├── incomplete/
     │       └── complete/
@@ -172,34 +156,6 @@ docker logs tailscale   # opens a URL — paste it in your browser
 
 Once authenticated, all services are reachable at `http://<tailscale-ip>:<port>` from any device on your Tailnet — phone, laptop, etc. — without port forwarding.
 
-### Exit Node for qBittorrent (optional)
-
-To hide your home IP from torrent trackers, route torrent traffic through a Tailscale exit node:
-
-1. Set up an exit node (a VPS, a cloud VM, another home machine):
-   ```bash
-   # On the exit node machine:
-   tailscale up --advertise-exit-node
-   # Then approve it in the Tailscale admin console under Machines
-   ```
-
-2. Set `TS_EXIT_NODE` in `.env` to that node's Tailscale IP or name:
-   ```
-   TS_EXIT_NODE=100.64.0.5
-   ```
-
-3. Start the stack with the `vpn` profile:
-   ```bash
-   docker compose --profile vpn up -d
-   ```
-
-4. In `docker-compose.yml`, switch `qbittorrent` to use the VPN sidecar network
-   (see the comments inside the `qbittorrent` service block).
-
-> **Note**: Tailscale is a mesh VPN — perfect for remote access. For maximum torrent
-> privacy you still need an exit node (your own VPS or a Tailscale-connected commercial
-> VPN server). Mullvad and other providers are adding Tailscale exit node support.
-
 ---
 
 ## First-Time Configuration
@@ -213,8 +169,7 @@ To hide your home IP from torrent trackers, route torrent traffic through a Tail
 ### Radarr / Sonarr — Download Clients
 
 1. *Settings → Download Clients → +*
-2. **qBittorrent**: host `qbittorrent`, port `8080`
-3. **SABnzbd**: host `sabnzbd`, port `8080`
+2. **SABnzbd**: host `sabnzbd`, port `8080`
 
 ### Radarr — Root Folder
 
@@ -296,7 +251,6 @@ Or use the **Unraid "Check for Updates"** button in the Docker tab.
 | Can't reach services via Tailscale | Check `docker logs tailscale` — look for auth URL or errors |
 | Tailscale shows "Needs login" | Run `docker exec tailscale tailscale login` or set `TS_AUTHKEY` |
 | Exit node not working | Ensure the exit node is approved in the Tailscale admin console |
-| qBittorrent unreachable | Check that the container started and port 8080 is not already in use |
 | No hardlinks | Ensure Radarr/Sonarr and download client all write under the same `/data` mount |
 | Permission errors | Check that `PUID`/`PGID` in `.env` match the owner of your Unraid shares |
 | Prowlarr sync fails | Use internal Docker hostnames (`radarr`, `sonarr`) not `localhost` or IP |
@@ -305,7 +259,6 @@ Or use the **Unraid "Check for Updates"** button in the Docker tab.
 
 | Service | Container Port | Published Port (default) |
 |---|---|---|
-| qBittorrent | 8080 | `QBITTORRENT_WEBUI_PORT` (8080) |
 | SABnzbd | 8080 | `SABNZBD_PORT` (8090) |
 | Prowlarr | 9696 | `PROWLARR_PORT` (9696) |
 | Radarr | 7878 | `RADARR_PORT` (7878) |

@@ -2,8 +2,7 @@
 # Unraid Arr Stack — docker-compose.yml
 # ============================================================
 # Services included:
-#   VPN       : Tailscale  (remote access + optional exit node)
-#   Torrents  : qBittorrent  (optionally routed through Tailscale exit node)
+#   VPN       : Tailscale  (remote access)
 #   Usenet    : SABnzbd
 #   Indexers  : Prowlarr
 #   Movies    : Radarr
@@ -22,20 +21,8 @@
 #   3. docker compose up -d
 # ============================================================
 #
-# Tailscale — two modes:
-#
-#   A) Remote Access only (default)
-#      All services are reachable via your Tailscale IP (100.x.x.x)
-#      without opening any router ports.
-#      qBittorrent uses its own network connection.
-#
-#   B) Remote Access + Exit Node for torrents
-#      Set TS_EXIT_NODE in .env to the Tailscale IP of a node that
-#      advertises itself as an exit node (e.g. a VPS or another machine).
-#      qBittorrent will then use the profile "vpn" and share the
-#      tailscale-vpn sidecar's network — all torrent traffic exits
-#      through that node.
-#      Start with: docker compose --profile vpn up -d
+# Tailscale gives all services a stable Tailscale IP (100.x.x.x)
+# accessible from anywhere — no router port-forwarding needed.
 # ============================================================
 
 x-common: &common
@@ -60,20 +47,6 @@ volumes:
       type: none
       o: bind
       device: ${APPDATA}/tailscale
-
-  tailscale_vpn_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/tailscale-vpn
-
-  qbittorrent_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/qbittorrent
 
   sabnzbd_data:
     driver: local
@@ -210,87 +183,6 @@ services:
       start_period: 15s
 
   # ==========================================================================
-  # TAILSCALE VPN SIDECAR — Exit-node gateway for qBittorrent  (optional)
-  #
-  # Only started when using the "vpn" profile:
-  #   docker compose --profile vpn up -d
-  #
-  # Requirements before starting with --profile vpn:
-  #   1. Set TS_EXIT_NODE in .env to the Tailscale IP / hostname of your exit node.
-  #   2. That exit node must advertise itself and be approved in Tailscale admin.
-  #
-  # TS_EXTRA_ARGS_VPN must include the exit-node flags, e.g.:
-  #   TS_EXTRA_ARGS_VPN=--exit-node=100.64.0.5 --exit-node-allow-lan-access=true
-  #
-  # When the vpn profile is active, qbittorrent below shares this network
-  # (network_mode: service:tailscale-vpn), so it must NOT also have its own
-  # ports/networks — those are provided by this container.
-  # ==========================================================================
-  tailscale-vpn:
-    image: tailscale/tailscale:latest
-    container_name: tailscale-vpn
-    hostname: ${TS_HOSTNAME:-arr-stack}-vpn
-    restart: unless-stopped
-    profiles:
-      - vpn
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    ports:
-      # qBittorrent Web UI — published here because qbittorrent shares this network
-      - "${QBITTORRENT_WEBUI_PORT:-8080}:8080"
-    volumes:
-      - tailscale_vpn_data:/var/lib/tailscale
-    environment:
-      - TS_AUTHKEY=${TS_AUTHKEY:-}
-      - TS_STATE_DIR=/var/lib/tailscale
-      - TS_USERSPACE=false
-      # Set TS_EXTRA_ARGS_VPN in .env, e.g.:
-      # TS_EXTRA_ARGS_VPN=--exit-node=100.64.0.5 --exit-node-allow-lan-access=true
-      - TS_EXTRA_ARGS=${TS_EXTRA_ARGS_VPN:-}
-    networks:
-      - arr_net
-    healthcheck:
-      test: ["CMD-SHELL", "tailscale status --json | grep -q '\"BackendState\":\"Running\"'"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 15s
-
-  # ==========================================================================
-  # qBITTORRENT — Torrent client
-  #
-  # MODE A — Direct internet (default, active out of the box):
-  #   Uncomment the ports + networks blocks below, comment out Mode B.
-  #
-  # MODE B — Via Tailscale exit node:
-  #   1. Set TS_EXTRA_ARGS_VPN in .env (see tailscale-vpn above).
-  #   2. Start tailscale-vpn first:  docker compose --profile vpn up -d tailscale-vpn
-  #   3. Comment out ports + networks, uncomment network_mode + depends_on.
-  # ==========================================================================
-  qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:latest
-    container_name: qbittorrent
-    <<: *common
-    volumes:
-      - qbittorrent_data:/config
-      - ${DATA}/downloads/torrents:/downloads/torrents
-    environment:
-      - WEBUI_PORT=8080
-    # --- MODE A (default): comment out when using Mode B ---
-    ports:
-      - "${QBITTORRENT_WEBUI_PORT:-8080}:8080"
-    networks:
-      - arr_net
-    # --- MODE B (exit node): uncomment when using Mode B ---
-    # network_mode: "service:tailscale-vpn"
-    # depends_on:
-    #   tailscale-vpn:
-    #     condition: service_healthy
-
-  # ==========================================================================
   # SABnzbd — Usenet downloader
   # ==========================================================================
   sabnzbd:
@@ -337,7 +229,6 @@ services:
       - arr_net
     depends_on:
       - prowlarr
-      - qbittorrent
       - sabnzbd
 
   # ==========================================================================
@@ -356,7 +247,6 @@ services:
       - arr_net
     depends_on:
       - prowlarr
-      - qbittorrent
       - sabnzbd
 
   # ==========================================================================
@@ -462,7 +352,7 @@ services:
       # One-time setup wizard (only needed on first start)
       - "${ADGUARD_SETUP_PORT:-3001}:3000"
       # Web UI (after initial setup)
-      # Default 8081 — avoids conflict with qBittorrent on 8080
+      # Default 8081 — avoids conflict with SABnzbd web UI on 8080
       - "${ADGUARD_WEBUI_PORT:-8081}:80"
     volumes:
       - adguard_work:/opt/adguardhome/work
