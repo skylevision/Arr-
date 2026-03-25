@@ -1,0 +1,385 @@
+# ============================================================
+# Unraid Arr Stack — docker-compose.yml
+# ============================================================
+# Services included:
+#   VPN       : Gluetun (WireGuard / OpenVPN)
+#   Torrents  : qBittorrent  (routed through VPN)
+#   Usenet    : SABnzbd
+#   Indexers  : Prowlarr
+#   Movies    : Radarr
+#   TV        : Sonarr
+#   Music     : Lidarr        (optional — LIDARR_ENABLED)
+#   Books     : Readarr       (optional — READARR_ENABLED)
+#   Subtitles : Bazarr
+#   Requests  : Overseerr
+#   Player    : Jellyfin
+#   Dashboard : Homepage
+# ============================================================
+# Usage:
+#   1. cp .env.example .env  &&  edit .env
+#   2. bash setup.sh          (creates all required directories)
+#   3. docker compose up -d
+# ============================================================
+
+x-common: &common
+  restart: unless-stopped
+  environment:
+    - PUID=${PUID:-1000}
+    - PGID=${PGID:-1000}
+    - TZ=${TZ:-Europe/Berlin}
+
+networks:
+  arr_net:
+    driver: bridge
+    name: arr_net
+
+# ---------------------------------------------------------------------------
+# VOLUMES — all data lives on the Unraid array
+# ---------------------------------------------------------------------------
+volumes:
+  gluetun_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/gluetun
+
+  qbittorrent_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/qbittorrent
+
+  sabnzbd_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/sabnzbd
+
+  prowlarr_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/prowlarr
+
+  radarr_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/radarr
+
+  sonarr_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/sonarr
+
+  lidarr_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/lidarr
+
+  readarr_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/readarr
+
+  bazarr_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/bazarr
+
+  overseerr_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/overseerr
+
+  jellyfin_config:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/jellyfin/config
+
+  jellyfin_cache:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/jellyfin/cache
+
+  homepage_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/homepage
+
+# ---------------------------------------------------------------------------
+services:
+  # ==========================================================================
+  # GLUETUN — VPN gateway
+  # All torrent traffic is routed through this container.
+  # qBittorrent uses network_mode: service:gluetun so it shares the VPN tunnel.
+  # ==========================================================================
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    <<: *common
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      # qBittorrent Web UI is exposed here because qbittorrent shares gluetun's network
+      - "${QBITTORRENT_WEBUI_PORT:-8080}:8080"
+    volumes:
+      - gluetun_data:/gluetun
+    environment:
+      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER:-mullvad}
+      - VPN_TYPE=${VPN_TYPE:-wireguard}
+      # WireGuard
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY:-}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES:-}
+      # OpenVPN
+      - OPENVPN_USER=${OPENVPN_USER:-}
+      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD:-}
+      # Optional server selection
+      - SERVER_COUNTRIES=${SERVER_COUNTRIES:-}
+      - SERVER_CITIES=${SERVER_CITIES:-}
+      - TZ=${TZ:-Europe/Berlin}
+      # Allow LAN subnets to bypass VPN (Unraid default subnet)
+      - FIREWALL_OUTBOUND_SUBNETS=192.168.0.0/16,172.16.0.0/12,10.0.0.0/8
+    networks:
+      - arr_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- https://am.i.mullvad.net/connected 2>/dev/null | grep -q 'connected' || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ==========================================================================
+  # qBITTORRENT — Torrent client (via VPN)
+  # ==========================================================================
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    <<: *common
+    # Share gluetun's network so all traffic goes through VPN
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    volumes:
+      - qbittorrent_data:/config
+      - ${DATA}/downloads/torrents:/downloads/torrents
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Europe/Berlin}
+      - WEBUI_PORT=8080
+    # NOTE: No ports here — they are published by gluetun above
+
+  # ==========================================================================
+  # SABnzbd — Usenet downloader
+  # ==========================================================================
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: sabnzbd
+    <<: *common
+    ports:
+      - "${SABNZBD_PORT:-8090}:8080"
+    volumes:
+      - sabnzbd_data:/config
+      - ${DATA}/downloads/usenet:/downloads/usenet
+    networks:
+      - arr_net
+
+  # ==========================================================================
+  # PROWLARR — Indexer / tracker manager
+  # Syncs indexers to Radarr, Sonarr, Lidarr, Readarr automatically.
+  # ==========================================================================
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    <<: *common
+    ports:
+      - "${PROWLARR_PORT:-9696}:9696"
+    volumes:
+      - prowlarr_data:/config
+    networks:
+      - arr_net
+
+  # ==========================================================================
+  # RADARR — Movie collection manager
+  # ==========================================================================
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    <<: *common
+    ports:
+      - "${RADARR_PORT:-7878}:7878"
+    volumes:
+      - radarr_data:/config
+      # Single /data mount so Radarr can create hardlinks between downloads and media
+      - ${DATA}:/data
+    networks:
+      - arr_net
+    depends_on:
+      - prowlarr
+      - qbittorrent
+      - sabnzbd
+
+  # ==========================================================================
+  # SONARR — TV show collection manager
+  # ==========================================================================
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    <<: *common
+    ports:
+      - "${SONARR_PORT:-8989}:8989"
+    volumes:
+      - sonarr_data:/config
+      - ${DATA}:/data
+    networks:
+      - arr_net
+    depends_on:
+      - prowlarr
+      - qbittorrent
+      - sabnzbd
+
+  # ==========================================================================
+  # LIDARR — Music collection manager  (optional)
+  # ==========================================================================
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    container_name: lidarr
+    <<: *common
+    profiles:
+      - lidarr
+    ports:
+      - "${LIDARR_PORT:-8686}:8686"
+    volumes:
+      - lidarr_data:/config
+      - ${DATA}:/data
+    networks:
+      - arr_net
+    depends_on:
+      - prowlarr
+
+  # ==========================================================================
+  # READARR — Book / AudioBook collection manager  (optional)
+  # ==========================================================================
+  readarr:
+    image: lscr.io/linuxserver/readarr:develop
+    container_name: readarr
+    <<: *common
+    profiles:
+      - readarr
+    ports:
+      - "${READARR_PORT:-8787}:8787"
+    volumes:
+      - readarr_data:/config
+      - ${DATA}:/data
+    networks:
+      - arr_net
+    depends_on:
+      - prowlarr
+
+  # ==========================================================================
+  # BAZARR — Subtitle manager for Radarr / Sonarr
+  # ==========================================================================
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    <<: *common
+    ports:
+      - "${BAZARR_PORT:-6767}:6767"
+    volumes:
+      - bazarr_data:/config
+      - ${DATA}/media:/data/media
+    networks:
+      - arr_net
+    depends_on:
+      - radarr
+      - sonarr
+
+  # ==========================================================================
+  # OVERSEERR — User-facing media request portal
+  # ==========================================================================
+  overseerr:
+    image: sctx/overseerr:latest
+    container_name: overseerr
+    <<: *common
+    ports:
+      - "${OVERSEERR_PORT:-5055}:5055"
+    volumes:
+      - overseerr_data:/app/config
+    networks:
+      - arr_net
+    depends_on:
+      - radarr
+      - sonarr
+
+  # ==========================================================================
+  # JELLYFIN — Media server (open-source Plex alternative)
+  # ==========================================================================
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: jellyfin
+    <<: *common
+    ports:
+      - "${JELLYFIN_PORT_HTTP:-8096}:8096"
+      - "${JELLYFIN_PORT_HTTPS:-8920}:8920"
+      # DLNA / auto-discovery (optional)
+      - "7359:7359/udp"
+      - "1900:1900/udp"
+    volumes:
+      - jellyfin_config:/config
+      - jellyfin_cache:/cache
+      - ${DATA}/media:/data/media:ro
+    environment:
+      - JELLYFIN_PublishedServerUrl=http://${UNRAID_IP:-192.168.1.100}:${JELLYFIN_PORT_HTTP:-8096}
+    # ---- Hardware transcoding ----
+    # Intel QuickSync / VAAPI: uncomment the device line below
+    # devices:
+    #   - /dev/dri:/dev/dri
+    #
+    # Nvidia: uncomment runtime and add your GPU
+    # runtime: nvidia
+    # environment:
+    #   - NVIDIA_VISIBLE_DEVICES=all
+    networks:
+      - arr_net
+    user: "${PUID:-1000}:${PGID:-1000}"
+
+  # ==========================================================================
+  # HOMEPAGE — Unified dashboard for all services
+  # ==========================================================================
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    <<: *common
+    ports:
+      - "${HOMEPAGE_PORT:-3000}:3000"
+    volumes:
+      - homepage_data:/app/config
+      # Allow Homepage to read Docker socket for live container status
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - arr_net
