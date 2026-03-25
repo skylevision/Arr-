@@ -335,7 +335,7 @@ services:
   #
   # First start: open the setup wizard at http://<unraid-ip>:3000
   # After setup, the web UI moves to port 80 inside the container —
-  # mapped to ADGUARD_WEBUI_PORT (default 8080) on the host.
+  # mapped to ADGUARD_WEBUI_PORT (default 8081) on the host.
   # Note: 3000 is also used by Homepage — use ADGUARD_SETUP_PORT to avoid
   # a conflict during the one-time setup wizard (default 3001).
   #

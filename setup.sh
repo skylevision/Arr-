@@ -157,7 +157,7 @@ write_if_missing "${HP_CONFIG}/services.yaml" "---
 - DNS:
     - AdGuard Home:
         icon: adguard-home.png
-        href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:${ADGUARD_WEBUI_PORT:-8080}
+        href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:${ADGUARD_WEBUI_PORT:-8081}
         description: Network DNS & Ad Blocker
         widget:
           type: adguard
