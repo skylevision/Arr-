@@ -12,6 +12,7 @@
 #   Books     : Readarr       (optional — profile: readarr)
 #   Subtitles : Bazarr
 #   Requests  : Seerr
+#   DNS       : Pi-hole
 #   Player    : Jellyfin
 #   Dashboard : Homepage
 # ============================================================
@@ -129,6 +130,20 @@ volumes:
       type: none
       o: bind
       device: ${APPDATA}/seerr
+
+  pihole_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/pihole/data
+
+  pihole_dnsmasq:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/pihole/dnsmasq.d
 
   jellyfin_config:
     driver: local
@@ -412,6 +427,44 @@ services:
       - jellyfin
       - radarr
       - sonarr
+
+  # ==========================================================================
+  # PI-HOLE — Network-wide DNS ad blocker
+  #
+  # Port 53 is bound to UNRAID_IP so it doesn't conflict with the host's
+  # own resolver. Set UNRAID_IP in .env to your Unraid server's LAN IP.
+  #
+  # Point your router's DNS (or individual clients) to <UNRAID_IP> to use
+  # Pi-hole for the whole network, or just use it for the containers below
+  # by setting dns: in each service.
+  #
+  # Web UI:  http://<unraid-ip>:PIHOLE_WEBUI_PORT/admin
+  # ==========================================================================
+  pihole:
+    image: pihole/pihole:latest
+    container_name: pihole
+    restart: unless-stopped
+    ports:
+      # DNS — bound to the Unraid IP to avoid conflicting with the host resolver
+      - "${UNRAID_IP}:53:53/tcp"
+      - "${UNRAID_IP}:53:53/udp"
+      # Web UI
+      - "${PIHOLE_WEBUI_PORT:-8053}:80"
+    environment:
+      - TZ=${TZ:-Europe/Berlin}
+      - WEBPASSWORD=${PIHOLE_WEBPASSWORD:-changeme}
+      # Upstream DNS servers used by Pi-hole itself
+      - PIHOLE_DNS_1=${PIHOLE_UPSTREAM_DNS1:-1.1.1.1}
+      - PIHOLE_DNS_2=${PIHOLE_UPSTREAM_DNS2:-8.8.8.8}
+      # Hostname shown in Pi-hole UI
+      - VIRTUAL_HOST=pihole
+    volumes:
+      - pihole_data:/etc/pihole
+      - pihole_dnsmasq:/etc/dnsmasq.d
+    cap_add:
+      - NET_ADMIN
+    networks:
+      - arr_net
 
   # ==========================================================================
   # JELLYFIN — Media server (open-source Plex alternative)
