@@ -176,11 +176,11 @@ write_if_missing "${HP_CONFIG}/services.yaml" "---
           key: # paste your Jellyfin API key here
 
     - Seerr:
-        icon: overseerr.png
+        icon: overseerr.png  # Homepage has no native Seerr icon; Seerr is API-compatible
         href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:${SEERR_PORT:-5055}
         description: Request Movies & TV
         widget:
-          type: overseerr
+          type: overseerr  # Seerr implements the Overseerr API
           url: http://seerr:5055
           key: # paste your Seerr API key here
 "

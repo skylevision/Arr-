@@ -61,6 +61,8 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 │   ├── radarr/
 │   ├── sonarr/
 │   ├── bazarr/
+│   ├── lidarr/               ← optional
+│   ├── readarr/              ← optional
 │   ├── seerr/
 │   ├── adguardhome/
 │   ├── jellyfin/
