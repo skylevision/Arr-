@@ -2,6 +2,12 @@
 
 A complete, production-ready Docker Compose stack for automated movie and TV management on Unraid.
 
+> **Neu bei Unraid?** → Zuerst die [Unraid Setup-Anleitung](UNRAID_SETUP.md) lesen.
+> Sie führt Schritt für Schritt durch BIOS, HDDs, NVMe-Cache, 2×2.5G-Bonding und alle Grundeinstellungen.
+
+> **Dual Language (DE+EN)?** → [Dual Language Setup](DUAL_LANGUAGE_SETUP.md) —
+> Custom Formats und Quality Profiles für automatische German-DL-Downloads.
+
 ## Services
 
 | Service | Purpose | Default Port |
@@ -110,8 +116,11 @@ nano .env          # set UNRAID_IP, TS_HOSTNAME, paths, PUID/PGID
 Get your PUID / PGID:
 ```bash
 id $USER
-# uid=1000(nobody) gid=1000(users) ...
+# uid=99(nobody) gid=100(users) ...   ← Unraid default (nobody/users)
 ```
+
+> **Unraid default**: PUID=**99** (nobody), PGID=**100** (users).
+> These are Unraid's built-in media user — use them unless you created a dedicated user.
 
 ### 4. Run setup
 
@@ -252,7 +261,6 @@ Or use the **Unraid "Check for Updates"** button in the Docker tab.
 |---|---|
 | Can't reach services via Tailscale | Check `docker logs tailscale` — look for auth URL or errors |
 | Tailscale shows "Needs login" | Run `docker exec tailscale tailscale login` or set `TS_AUTHKEY` |
-| Exit node not working | Ensure the exit node is approved in the Tailscale admin console |
 | No hardlinks | Ensure Radarr/Sonarr and download client all write under the same `/data` mount |
 | Permission errors | Check that `PUID`/`PGID` in `.env` match the owner of your Unraid shares |
 | Prowlarr sync fails | Use internal Docker hostnames (`radarr`, `sonarr`) not `localhost` or IP |

@@ -38,8 +38,8 @@ fi
 # shellcheck disable=SC1090
 source "${SCRIPT_DIR}/.env"
 
-PUID="${PUID:-1000}"
-PGID="${PGID:-1000}"
+PUID="${PUID:-99}"
+PGID="${PGID:-100}"
 APPDATA="${APPDATA:-/mnt/user/appdata}"
 DATA="${DATA:-/mnt/user/data}"
 
