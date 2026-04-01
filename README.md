@@ -2,6 +2,9 @@
 
 A complete, production-ready Docker Compose stack for automated movie and TV management on Unraid.
 
+> **Neu bei Unraid?** → Zuerst die [Unraid Setup-Anleitung](UNRAID_SETUP.md) lesen.
+> Sie führt Schritt für Schritt durch BIOS, HDDs, NVMe-Cache, 2×2.5G-Bonding und alle Grundeinstellungen.
+
 ## Services
 
 | Service | Purpose | Default Port |
