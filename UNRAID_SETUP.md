@@ -190,11 +190,16 @@ IPv4 Address:          (DHCP oder statisch, s. u.)
 IPv4 address:     192.168.1.100     ← freie IP im Heimnetz
 IPv4 netmask:     255.255.255.0
 IPv4 gateway:     192.168.1.1
-IPv4 DNS:         192.168.1.100     ← zeigt auf eigenes AdGuard Home!
-                  1.1.1.1           ← Fallback
+IPv4 DNS:         1.1.1.1           ← erst mal öffentlicher DNS
+                  8.8.8.8           ← Fallback
 ```
 
 → **Apply** → Server kurz trennen, wieder verbinden.
+
+> **Hinweis DNS → AdGuard Home**: Sobald der Arr Stack (Kapitel 10) läuft und AdGuard Home
+> eingerichtet ist, kannst du die DNS-Einträge hier auf `192.168.1.100` (eigene IP) + `1.1.1.1`
+> als Fallback ändern. Jetzt schon `192.168.1.100` einzutragen würde scheitern, da AdGuard
+> noch nicht läuft.
 
 ### Szenario B — Unmanaged Switch (Active-Backup)
 
