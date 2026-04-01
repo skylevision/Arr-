@@ -15,8 +15,9 @@ Filme und Serien anforderst und alles auf deinen Geräten nutzt.
 6. [Geräteanleitung — Smartphone](#6-geräteanleitung--smartphone-androidios)
 7. [Geräteanleitung — PC / Mac](#7-geräteanleitung--pc--mac)
 8. [Geräteanleitung — Fire TV Stick](#8-geräteanleitung--fire-tv-stick)
-9. [Was kannst du alles machen?](#9-was-kannst-du-alles-machen)
-10. [Häufige Fragen (FAQ)](#10-häufige-fragen-faq)
+9. [SeerrTV — Direkt vom TV anfordern](#9-seerrtv--direkt-vom-tv-anfordern)
+10. [Was kannst du alles machen?](#10-was-kannst-du-alles-machen)
+11. [Häufige Fragen (FAQ)](#11-häufige-fragen-faq)
 
 ---
 
@@ -261,7 +262,10 @@ Das erfordert ein Sideload (Installation außerhalb des Amazon Stores):
 
 ### Medien anfordern vom Fernseher
 
-Seerr hat keine Fire TV App. Anfragen am besten über Smartphone oder PC stellen.
+Nutze **SeerrTV** — eine native Android-TV-App zum Anfordern direkt per Fernbedienung.
+→ [Zur SeerrTV-Anleitung (Abschnitt 9)](#9-seerrtv--direkt-vom-tv-anfordern)
+
+Alternativ: Anfragen auch über Smartphone oder PC per Browser möglich.
 
 ### Steuerung
 
@@ -275,7 +279,67 @@ Seerr hat keine Fire TV App. Anfragen am besten über Smartphone oder PC stellen
 
 ---
 
-## 9. Was kannst du alles machen?
+## 9. SeerrTV — Direkt vom TV anfordern
+
+**SeerrTV** ist eine Android-TV-App, mit der du Filme und Serien direkt vom Sofa aus
+anfordern kannst — ohne Smartphone oder Browser. Komplett fernbedienungsoptimiert.
+
+> App: [github.com/devmesh-git/seerrtv](https://github.com/devmesh-git/seerrtv)
+> Kompatibel mit: Seerr, Overseerr, Jellyseerr
+
+### Was SeerrTV kann
+
+| Funktion | Details |
+|---|---|
+| 🔍 Suche & Browsen | Filme/Serien suchen, nach Genre/Streaming-Dienst/Bewertung filtern |
+| ➕ Anfordern | HD oder 4K anfordern, Staffeln einzeln wählen |
+| 📊 Status verfolgen | Download-Fortschritt in Echtzeit sehen |
+| 🎬 Trailer | YouTube-Trailer direkt in der App |
+| 🔒 Login | Per Jellyfin-Account (oder API Key) |
+| 📺 TV-Navigation | Vollständig per D-Pad / Fernbedienung bedienbar |
+
+### Installation auf dem Fire TV Stick
+
+SeerrTV ist nicht im Amazon Appstore — Installation per Sideload:
+
+```
+① Downloader-App aus dem Amazon Appstore installieren (falls noch nicht vorhanden)
+
+② In Downloader folgende URL eingeben:
+   https://github.com/devmesh-git/seerrtv/releases/latest/download/seerrtv.apk
+   (oder: gehe zu github.com/devmesh-git/seerrtv → Releases → neueste APK)
+
+③ APK herunterladen und installieren
+   → "Installieren" bestätigen
+
+④ SeerrTV öffnen → Server-URL eingeben:
+   http://100.x.x.x:5055      ← Tailscale-IP des Servers
+   (im gleichen WLAN: http://192.168.1.100:5055)
+
+⑤ Login mit Jellyfin-Account wählen → fertig!
+```
+
+> **Hinweis**: Bei Updates einfach die neue APK über Downloader erneut installieren,
+> oder die App prüft selbst auf GitHub-Updates.
+
+### Installation auf Android TV (z. B. Nvidia Shield, Chromecast, Sony TV)
+
+SeerrTV ist im **Google Play Store** verfügbar — einfach suchen und installieren:
+```
+Play Store → Suche: "SeerrTV" → Installieren
+```
+
+### Einrichtung
+
+1. App öffnen → **„Server-URL"** eingeben: `http://100.x.x.x:5055`
+2. **„Mit Jellyfin anmelden"** wählen → Benutzername + Passwort
+3. Fertig — Bibliothek und Anfragen erscheinen direkt auf dem TV
+
+---
+
+## 10. Was kannst du alles machen?
+
+> **Seerr auf dem TV?** → Nutze [SeerrTV](#9-seerrtv--direkt-vom-tv-anfordern) statt dem Browser.
 
 ### Als Zuschauer
 
@@ -287,8 +351,9 @@ Seerr hat keine Fire TV App. Anfragen am besten über Smartphone oder PC stellen
 | ⬇️ Offline herunterladen | Jellyfin Mobile App | Für unterwegs ohne Internet |
 | ⭐ Favoriten markieren | Jellyfin | Eigene Merkliste |
 | ▶️ Weiterschauen | Jellyfin | Fortschritt wird geräteübergreifend gespeichert |
-| 🔍 Inhalte anfordern | Seerr | Filme und Serien wünschen |
-| 📋 Anfragen verfolgen | Seerr → Profil | Status deiner Anfragen |
+| 🔍 Inhalte anfordern (Browser/App) | Seerr | Filme und Serien wünschen — auf PC/Handy |
+| 📺 Inhalte anfordern (TV) | SeerrTV | Direkt per Fernbedienung anfordern |
+| 📋 Anfragen verfolgen | Seerr / SeerrTV | Status deiner Anfragen inkl. Download-Fortschritt |
 
 ### Was der Admin macht
 
@@ -308,7 +373,7 @@ Seerr hat keine Fire TV App. Anfragen am besten über Smartphone oder PC stellen
 
 ---
 
-## 10. Häufige Fragen (FAQ)
+## 11. Häufige Fragen (FAQ)
 
 **„Ich kann Jellyfin nicht erreichen."**
 → Ist Tailscale verbunden? Tailscale-App öffnen → grüner Haken = verbunden.
