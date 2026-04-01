@@ -11,6 +11,9 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 > **Freunde & Familie einladen?** → [Freunde-Anleitung](FREUNDE_ANLEITUNG.md) —
 > Tailscale-Verbindung, Jellyfin & Seerr einrichten auf Smartphone, PC und Fire TV Stick.
 
+> **Passwort-Manager?** → [Vaultwarden Setup](VAULTWARDEN_SETUP.md) —
+> Self-hosted Bitwarden-kompatiblen Passwort-Manager einrichten und mit allen Geräten verbinden.
+
 ## Services
 
 | Service | Purpose | Default Port |
@@ -24,6 +27,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 | **Readarr** | Book / AudioBook manager *(optional)* | 8787 |
 | **Bazarr** | Subtitle management | 6767 |
 | **Seerr** | Media request portal *(Overseerr successor)* | 5055 |
+| **Vaultwarden** | Self-hosted Bitwarden-compatible password manager | 8082 |
 | **AdGuard Home** | Network-wide DNS ad blocker & parental control | 8081 (UI), 53 (DNS) |
 | **Jellyfin** | Media server | 8096 |
 | **Homepage** | Unified dashboard | 3000 |
@@ -73,6 +77,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 │   ├── lidarr/               ← optional
 │   ├── readarr/              ← optional
 │   ├── seerr/
+│   ├── vaultwarden/
 │   ├── adguardhome/
 │   ├── jellyfin/
 │   └── homepage/
@@ -204,6 +209,19 @@ Once authenticated, all services are reachable at `http://<tailscale-ip>:<port>`
 2. Connect your media server (Jellyfin: `http://jellyfin:8096`, or Plex/Emby)
 3. Connect to Radarr (`http://radarr:7878`) and Sonarr (`http://sonarr:8989`) with their API keys.
 
+### Vaultwarden
+
+1. Open Vaultwarden (`http://<ip>:8082`) → create your account
+2. Open the admin panel at `http://<ip>:8082/admin` (requires `VW_ADMIN_TOKEN` in `.env`)
+3. In the admin panel: disable signups once all accounts are created (`VW_SIGNUPS_ALLOWED=false`)
+4. **HTTPS for mobile clients** (required by Bitwarden apps):
+   ```bash
+   docker exec tailscale tailscale serve https:443 / http://localhost:8082
+   ```
+   This exposes Vaultwarden at `https://<hostname>.<tailnet>.ts.net` with a valid cert.
+
+> See [VAULTWARDEN_SETUP.md](VAULTWARDEN_SETUP.md) for the full guide including client setup, 2FA, import, and backup.
+
 ### AdGuard Home
 
 1. On **first start**, open the setup wizard at `http://<ip>:3001` (mapped to `ADGUARD_SETUP_PORT`)
@@ -280,6 +298,7 @@ Or use the **Unraid "Check for Updates"** button in the Docker tab.
 | Readarr | 8787 | `READARR_PORT` (8787) |
 | Bazarr | 6767 | `BAZARR_PORT` (6767) |
 | Seerr | 5055 | `SEERR_PORT` (5055) |
+| Vaultwarden | 80 | `VAULTWARDEN_PORT` (8082) |
 | AdGuard Setup | 3000 | `ADGUARD_SETUP_PORT` (3001) — first start only |
 | AdGuard UI | 80 | `ADGUARD_WEBUI_PORT` (8081) |
 | AdGuard DNS | 53 | bound to `UNRAID_IP` |

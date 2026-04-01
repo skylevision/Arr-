@@ -28,6 +28,7 @@ Filme und Serien anforderst und alles auf deinen Geräten nutzt.
 | 🎬 **Jellyfin** | Dein Netflix — alle Filme und Serien streamen |
 | 🔍 **Seerr** | Neue Filme / Serien anfordern |
 | 🔒 **Tailscale** | Sichere Verbindung zum Server — von überall, kostenlos |
+| 🔑 **Vaultwarden** | Gemeinsamer Passwort-Manager (Bitwarden-kompatibel) — auf Einladung |
 
 Das läuft alles auf dem privaten Server deines Freundes. Keine Werbung, kein Abo.
 
@@ -420,9 +421,9 @@ Alles über Tailscale erreichbar (wenn verbunden):
 |---|---|
 | 🎬 Jellyfin | `http://arr-stack:8096` |
 | 🔍 Seerr (Anfragen) | `http://arr-stack:5055` |
+| 🔑 Vaultwarden | `https://arr-stack.<tailnet>.ts.net` *(auf Einladung)* |
 
-> `arr-stack` durch den tatsächlichen Tailscale-Hostnamen oder die IP ersetzen —
-> diese Information bekommst du vom Admin.
+> `arr-stack` und `<tailnet>` durch die Werte ersetzen, die du vom Admin bekommst.
 
 ---
 
