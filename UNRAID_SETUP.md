@@ -492,6 +492,12 @@ docker logs tailscale
 # URL kopieren und im Browser öffnen → mit Tailscale-Account einloggen
 ```
 
+### Dual Language (Deutsch + Englisch) einrichten
+
+Nach dem ersten Start von Radarr und Sonarr:
+→ Siehe **[DUAL_LANGUAGE_SETUP.md](DUAL_LANGUAGE_SETUP.md)** für die vollständige Anleitung
+zu Custom Formats, Quality Profiles und Scoring für automatische German-DL-Downloads.
+
 ### Dienste aufrufen
 
 | Service | URL (LAN) | URL (Tailscale) |
