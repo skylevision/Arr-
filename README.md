@@ -8,6 +8,9 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 > **Dual Language (DE+EN)?** → [Dual Language Setup](DUAL_LANGUAGE_SETUP.md) —
 > Custom Formats und Quality Profiles für automatische German-DL-Downloads.
 
+> **Freunde & Familie einladen?** → [Freunde-Anleitung](FREUNDE_ANLEITUNG.md) —
+> Tailscale-Verbindung, Jellyfin & Seerr einrichten auf Smartphone, PC und Fire TV Stick.
+
 ## Services
 
 | Service | Purpose | Default Port |
