@@ -230,8 +230,6 @@ if [[ -z "${TS_AUTHKEY:-}" ]]; then
   warn "  and open the printed URL to authenticate this node interactively."
 fi
 
-# Warn if vpn profile is intended but exit node is missing
-
 if [[ "${MISSING}" -eq 1 ]]; then
   warn "One or more variables need attention in .env before starting."
 else
