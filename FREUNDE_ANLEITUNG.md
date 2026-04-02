@@ -26,6 +26,7 @@ Filme und Serien anforderst und alles auf deinen Geräten nutzt.
 | Was | Wozu |
 |---|---|
 | 🎬 **Jellyfin** | Dein Netflix — alle Filme und Serien streamen |
+| 📺 **Jellyfin Live TV** | Deutsches Live-TV (ARD, ZDF, Sport1 …) — wenn vom Admin eingerichtet |
 | 🔍 **Seerr** | Neue Filme / Serien anfordern |
 | 🔒 **Tailscale** | Sichere Verbindung zum Server — von überall, kostenlos |
 | 🔑 **Vaultwarden** | Gemeinsamer Passwort-Manager (Bitwarden-kompatibel) — auf Einladung |
@@ -352,6 +353,7 @@ Play Store → Suche: "SeerrTV" → Installieren
 | ⬇️ Offline herunterladen | Jellyfin Mobile App | Für unterwegs ohne Internet |
 | ⭐ Favoriten markieren | Jellyfin | Eigene Merkliste |
 | ▶️ Weiterschauen | Jellyfin | Fortschritt wird geräteübergreifend gespeichert |
+| 📺 Live TV schauen | Jellyfin → Live TV | Deutsches TV live (ARD, ZDF, Sport1 etc.) — falls eingerichtet |
 | 🔍 Inhalte anfordern (Browser/App) | Seerr | Filme und Serien wünschen — auf PC/Handy |
 | 📺 Inhalte anfordern (TV) | SeerrTV | Direkt per Fernbedienung anfordern |
 | 📋 Anfragen verfolgen | Seerr / SeerrTV | Status deiner Anfragen inkl. Download-Fortschritt |

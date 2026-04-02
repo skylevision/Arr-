@@ -12,6 +12,7 @@
 #   Subtitles : Bazarr
 #   Requests  : Seerr
 #   Passwords : Vaultwarden  (Bitwarden-compatible)
+#   Live TV   : Threadfin    (optional — profile: iptv)
 #   DNS       : AdGuard Home
 #   Player    : Jellyfin
 #   Dashboard : Homepage
@@ -111,6 +112,20 @@ volumes:
       type: none
       o: bind
       device: ${APPDATA}/vaultwarden
+
+  threadfin_conf:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/threadfin/conf
+
+  threadfin_temp:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${APPDATA}/threadfin/temp
 
   adguard_work:
     driver: local
@@ -431,6 +446,33 @@ services:
     networks:
       - arr_net
     user: "${PUID:-99}:${PGID:-100}"
+
+  # ==========================================================================
+  # THREADFIN — IPTV proxy / Live TV for Jellyfin  (optional)
+  #
+  # Emulates an HDHomeRun tuner so Jellyfin can consume M3U playlists as
+  # Live TV. Supports multiple M3U sources, EPG via XMLTV, channel filtering
+  # and logo management.
+  #
+  # Start with:  docker compose --profile iptv up -d threadfin
+  #
+  # Recommended free German TV sources:
+  #   M3U: https://raw.githubusercontent.com/jnk22/kodinerds-iptv/master/iptv/kodi/kodi_tv.m3u
+  #   EPG: see IPTV_SETUP.md
+  # ==========================================================================
+  threadfin:
+    image: fyb3roptik/threadfin:latest
+    container_name: threadfin
+    <<: *common
+    profiles:
+      - iptv
+    ports:
+      - "${THREADFIN_PORT:-34400}:34400"
+    volumes:
+      - threadfin_conf:/home/threadfin/conf
+      - threadfin_temp:/tmp/threadfin:rw
+    networks:
+      - arr_net
 
   # ==========================================================================
   # HOMEPAGE — Unified dashboard for all services

@@ -59,6 +59,8 @@ APPDATA_DIRS=(
   bazarr
   seerr
   vaultwarden
+  threadfin/conf
+  threadfin/temp
   adguardhome/work
   adguardhome/conf
   jellyfin/config
@@ -184,6 +186,13 @@ write_if_missing "${HP_CONFIG}/services.yaml" "---
           type: overseerr  # Seerr implements the Overseerr API
           url: http://seerr:5055
           key: # paste your Seerr API key here
+
+- Live TV:
+    - Threadfin:
+        icon: mdi-television-play
+        href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:${THREADFIN_PORT:-34400}/web
+        description: IPTV Live TV Proxy
+        # Note: Threadfin only runs when started with --profile iptv
 "
 
 write_if_missing "${HP_CONFIG}/widgets.yaml" "---
@@ -260,6 +269,7 @@ printf "    %-20s http://<unraid-ip>:%s\n" "Sonarr"        "${SONARR_PORT:-8989}
 printf "    %-20s http://<unraid-ip>:%s\n" "Bazarr"        "${BAZARR_PORT:-6767}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Seerr"          "${SEERR_PORT:-5055}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Vaultwarden"   "${VAULTWARDEN_PORT:-8082}"
+printf "    %-20s http://<unraid-ip>:%s  (--profile iptv)\n" "Threadfin" "${THREADFIN_PORT:-34400}"
 printf "    %-20s http://<unraid-ip>:%s\n" "AdGuard Home"  "${ADGUARD_WEBUI_PORT:-8081}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Jellyfin"      "${JELLYFIN_PORT_HTTP:-8096}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Homepage"      "${HOMEPAGE_PORT:-3000}"
