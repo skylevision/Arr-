@@ -191,8 +191,7 @@ write_if_missing "${HP_CONFIG}/services.yaml" "---
     - Threadfin:
         icon: mdi-television-play
         href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:${THREADFIN_PORT:-34400}/web
-        description: IPTV Live TV Proxy
-        # Note: Threadfin only runs when started with --profile iptv
+        description: IPTV Proxy (optional, start with --profile iptv)
 "
 
 write_if_missing "${HP_CONFIG}/widgets.yaml" "---
@@ -258,8 +257,9 @@ echo "  2. Start the stack:"
 echo "       docker compose up -d"
 echo ""
 echo "  Optional services (disabled by default):"
-echo "     Lidarr  (music):  docker compose --profile lidarr  up -d lidarr"
-echo "     Readarr (books):  docker compose --profile readarr up -d readarr"
+echo "     Lidarr   (music):   docker compose --profile lidarr  up -d lidarr"
+echo "     Readarr  (books):   docker compose --profile readarr up -d readarr"
+echo "     Threadfin (IPTV):   docker compose --profile iptv    up -d threadfin"
 echo ""
 echo "  Service ports:"
 printf "    %-20s http://<unraid-ip>:%s\n" "SABnzbd"       "${SABNZBD_PORT:-8090}"
