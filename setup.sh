@@ -191,7 +191,7 @@ write_if_missing "${HP_CONFIG}/services.yaml" "---
     - Threadfin:
         icon: mdi-television-play
         href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:${THREADFIN_PORT:-34400}/web
-        description: IPTV Proxy (optional, start with --profile iptv)
+        description: IPTV Live TV Proxy
 "
 
 write_if_missing "${HP_CONFIG}/widgets.yaml" "---
@@ -257,9 +257,8 @@ echo "  2. Start the stack:"
 echo "       docker compose up -d"
 echo ""
 echo "  Optional services (disabled by default):"
-echo "     Lidarr   (music):   docker compose --profile lidarr  up -d lidarr"
-echo "     Readarr  (books):   docker compose --profile readarr up -d readarr"
-echo "     Threadfin (IPTV):   docker compose --profile iptv    up -d threadfin"
+echo "     Lidarr   (music):  docker compose --profile lidarr  up -d lidarr"
+echo "     Readarr  (books):  docker compose --profile readarr up -d readarr"
 echo ""
 echo "  Service ports:"
 printf "    %-20s http://<unraid-ip>:%s\n" "SABnzbd"       "${SABNZBD_PORT:-8090}"
@@ -269,7 +268,7 @@ printf "    %-20s http://<unraid-ip>:%s\n" "Sonarr"        "${SONARR_PORT:-8989}
 printf "    %-20s http://<unraid-ip>:%s\n" "Bazarr"        "${BAZARR_PORT:-6767}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Seerr"          "${SEERR_PORT:-5055}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Vaultwarden"   "${VAULTWARDEN_PORT:-8082}"
-printf "    %-20s http://<unraid-ip>:%s  (--profile iptv)\n" "Threadfin" "${THREADFIN_PORT:-34400}"
+printf "    %-20s http://<unraid-ip>:%s\n" "Threadfin"      "${THREADFIN_PORT:-34400}"
 printf "    %-20s http://<unraid-ip>:%s\n" "AdGuard Home"  "${ADGUARD_WEBUI_PORT:-8081}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Jellyfin"      "${JELLYFIN_PORT_HTTP:-8096}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Homepage"      "${HOMEPAGE_PORT:-3000}"

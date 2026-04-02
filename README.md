@@ -31,7 +31,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 | **Bazarr** | Subtitle management | 6767 |
 | **Seerr** | Media request portal *(Overseerr successor)* | 5055 |
 | **Vaultwarden** | Self-hosted Bitwarden-compatible password manager | 8082 |
-| **Threadfin** | IPTV proxy — Live TV for Jellyfin *(optional)* | 34400 |
+| **Threadfin** | IPTV proxy — Live TV for Jellyfin | 34400 |
 | **AdGuard Home** | Network-wide DNS ad blocker & parental control | 8081 (UI), 53 (DNS) |
 | **Jellyfin** | Media server | 8096 |
 | **Homepage** | Unified dashboard | 3000 |
@@ -64,7 +64,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
   │  │  │  Seerr   │  │ AdGuard Home│  │   Jellyfin   │    │   │
   │  │  └──────────┘  └─────────────┘  └──────┬───────┘    │   │
   │  │  ┌─────────────┐  ┌──────────────────────▼───────┐  │   │
-  │  │  │ Vaultwarden │  │  Threadfin (opt) ─► Live TV  │  │   │
+  │  │  │ Vaultwarden │  │  Threadfin ──────► Live TV   │  │   │
   │  │  └─────────────┘  └──────────────────────────────┘  │   │
   │  └──────────────────────────────────────────────────────┘   │
   └──────────────────────────────────────────────────────────────┘
@@ -85,7 +85,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 │   ├── readarr/              ← optional
 │   ├── seerr/
 │   ├── vaultwarden/
-│   ├── threadfin/               ← optional
+│   ├── threadfin/
 │   ├── adguardhome/
 │   ├── jellyfin/
 │   └── homepage/
@@ -154,7 +154,7 @@ docker compose up -d
 
 ### 6. Optional services
 
-Lidarr, Readarr and Threadfin use [Docker Compose profiles](https://docs.docker.com/compose/profiles/) and are **off by default**.
+Lidarr and Readarr use [Docker Compose profiles](https://docs.docker.com/compose/profiles/) and are **off by default**.
 
 ```bash
 # Start Lidarr
@@ -162,9 +162,6 @@ docker compose --profile lidarr up -d lidarr
 
 # Start Readarr
 docker compose --profile readarr up -d readarr
-
-# Start Threadfin (IPTV / Live TV)
-docker compose --profile iptv up -d threadfin
 ```
 
 ## Tailscale Setup
@@ -222,8 +219,7 @@ Once authenticated, all services are reachable at `http://<tailscale-ip>:<port>`
 
 ### Threadfin (IPTV / Live TV)
 
-1. Start the service: `docker compose --profile iptv up -d threadfin`
-2. Open the Threadfin UI (`http://<ip>:34400/web`) → Setup Wizard
+1. Open the Threadfin UI (`http://<ip>:34400/web`) → Setup Wizard
 3. Add your M3U playlist URL (free German TV: see [IPTV_SETUP.md](IPTV_SETUP.md))
 4. Add an XMLTV EPG source and map channels
 5. In Jellyfin → Admin → **Live TV** → Add tuner → **HD HomeRun** → URL: `http://threadfin:34400`
@@ -321,7 +317,7 @@ Or use the **Unraid "Check for Updates"** button in the Docker tab.
 | Bazarr | 6767 | `BAZARR_PORT` (6767) |
 | Seerr | 5055 | `SEERR_PORT` (5055) |
 | Vaultwarden | 80 | `VAULTWARDEN_PORT` (8082) |
-| Threadfin | 34400 | `THREADFIN_PORT` (34400) — optional |
+| Threadfin | 34400 | `THREADFIN_PORT` (34400) |
 | AdGuard Setup | 3000 | `ADGUARD_SETUP_PORT` (3001) — first start only |
 | AdGuard UI | 80 | `ADGUARD_WEBUI_PORT` (8081) |
 | AdGuard DNS | 53 | bound to `UNRAID_IP` |

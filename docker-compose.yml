@@ -12,7 +12,7 @@
 #   Subtitles : Bazarr
 #   Requests  : Seerr
 #   Passwords : Vaultwarden  (Bitwarden-compatible)
-#   Live TV   : Threadfin    (optional — profile: iptv)
+#   Live TV   : Threadfin
 #   DNS       : AdGuard Home
 #   Player    : Jellyfin
 #   Dashboard : Homepage
@@ -448,13 +448,11 @@ services:
     user: "${PUID:-99}:${PGID:-100}"
 
   # ==========================================================================
-  # THREADFIN — IPTV proxy / Live TV for Jellyfin  (optional)
+  # THREADFIN — IPTV proxy / Live TV for Jellyfin
   #
   # Emulates an HDHomeRun tuner so Jellyfin can consume M3U playlists as
   # Live TV. Supports multiple M3U sources, EPG via XMLTV, channel filtering
   # and logo management.
-  #
-  # Start with:  docker compose --profile iptv up -d threadfin
   #
   # Recommended free German TV sources:
   #   M3U: https://raw.githubusercontent.com/jnk22/kodinerds-iptv/master/iptv/kodi/kodi_tv.m3u
@@ -464,8 +462,6 @@ services:
     image: fyb3roptik/threadfin:latest
     container_name: threadfin
     <<: *common
-    profiles:
-      - iptv
     ports:
       - "${THREADFIN_PORT:-34400}:34400"
     volumes:

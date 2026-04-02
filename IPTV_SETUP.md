@@ -54,10 +54,10 @@ als IPTV-Proxy und Jellyfin als Abspieler — erreichbar von überall über Tail
 
 ## 2. Threadfin starten
 
-Threadfin ist ein **optionaler Dienst** — er muss explizit mit dem `iptv`-Profil gestartet werden:
+Threadfin startet automatisch mit dem Stack:
 
 ```bash
-docker compose --profile iptv up -d threadfin
+docker compose up -d
 ```
 
 Webinterface aufrufen:
