@@ -329,12 +329,12 @@ services:
       - sonarr
 
   # ==========================================================================
-  # SEERR — User-facing media request portal
-  # Successor to Overseerr — supports Jellyfin, Plex, Radarr, Sonarr.
+  # JELLYSEERR — User-facing media request portal
+  # Jellyfin-native fork of Overseerr — supports Jellyfin, Radarr, Sonarr.
   # Runs as the internal node user (no PUID/PGID).
   # ==========================================================================
   seerr:
-    image: seerr/seerr:latest
+    image: fallenbagel/jellyseerr:latest
     container_name: seerr
     restart: unless-stopped
     environment:
@@ -425,14 +425,18 @@ services:
     ports:
       - "${JELLYFIN_PORT_HTTP:-8096}:8096"
       - "${JELLYFIN_PORT_HTTPS:-8920}:8920"
-      # DLNA / auto-discovery (optional)
-      - "7359:7359/udp"
-      - "1900:1900/udp"
+      # DLNA / auto-discovery — disabled by default.
+      # These ports often conflict with Unraid's own DLNA/Avahi service.
+      # Uncomment only if you need local network auto-discovery:
+      # - "7359:7359/udp"
+      # - "1900:1900/udp"
     volumes:
       - jellyfin_config:/config
       - jellyfin_cache:/cache
       - ${DATA}/media:/data/media:ro
     environment:
+      # TZ must be repeated here — the explicit environment block overrides x-common
+      - TZ=${TZ:-Europe/Berlin}
       - JELLYFIN_PublishedServerUrl=http://${UNRAID_IP:-192.168.1.100}:${JELLYFIN_PORT_HTTP:-8096}
     # ---- Hardware transcoding ----
     # Intel QuickSync / VAAPI: uncomment the device line below
@@ -483,5 +487,12 @@ services:
       - homepage_data:/app/config
       # Allow Homepage to read Docker socket for live container status
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
+      - TZ=${TZ:-Europe/Berlin}
+      # Exposes UNRAID_IP as a template variable in services.yaml
+      # Usage: href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:7878
+      - HOMEPAGE_VAR_UNRAID_IP=${UNRAID_IP:-192.168.1.100}
     networks:
       - arr_net
