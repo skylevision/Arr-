@@ -5,6 +5,9 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 > **Neu bei Unraid?** → Zuerst die [Unraid Setup-Anleitung](UNRAID_SETUP.md) lesen.
 > Sie führt Schritt für Schritt durch BIOS, HDDs, NVMe-Cache, 2×2.5G-Bonding und alle Grundeinstellungen.
 
+> **Stack über die Unraid-Oberfläche einrichten?** → [Unraid UI Setup](UNRAID_UI_SETUP.md) —
+> Jeden Container Schritt für Schritt über das Unraid Web-Interface anlegen (ohne Docker Compose).
+
 > **Dual Language (DE+EN)?** → [Dual Language Setup](DUAL_LANGUAGE_SETUP.md) —
 > Custom Formats und Quality Profiles für automatische German-DL-Downloads.
 
