@@ -287,7 +287,7 @@ Alternativ: Anfragen auch über Smartphone oder PC per Browser möglich.
 anfordern kannst — ohne Smartphone oder Browser. Komplett fernbedienungsoptimiert.
 
 > App: [github.com/devmesh-git/seerrtv](https://github.com/devmesh-git/seerrtv)
-> Kompatibel mit: Seerr, Overseerr, Jellyseerr
+> Kompatibel mit: Jellyseerr (auch als „Seerr" bekannt) und dem originalen Overseerr
 
 ### Was SeerrTV kann
 

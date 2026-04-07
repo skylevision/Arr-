@@ -326,6 +326,9 @@ services:
       - "${BAZARR_PORT:-6767}:6767"
     volumes:
       - bazarr_data:/config
+      # Bazarr only needs the finished media — not /downloads.
+      # Radarr/Sonarr mount the full ${DATA}:/data for hardlink support;
+      # Bazarr has no need for the downloads directory.
       - ${DATA}/media:/data/media
     networks:
       - arr_net
