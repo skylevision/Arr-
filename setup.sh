@@ -216,6 +216,49 @@ my-docker:
 "
 
 # ---------------------------------------------------------------------------
+# Docker availability check
+# ---------------------------------------------------------------------------
+info "Checking Docker ..."
+
+if ! docker info >/dev/null 2>&1; then
+  error "Docker is not running or not accessible. Start Docker first, then re-run this script."
+fi
+success "Docker is running."
+
+# ---------------------------------------------------------------------------
+# Docker network — create arr_net if it doesn't exist
+# Declaring it here means 'docker compose up -d' never fails due to a
+# missing or conflicting network.
+# ---------------------------------------------------------------------------
+info "Ensuring Docker network 'arr_net' exists ..."
+
+if docker network inspect arr_net >/dev/null 2>&1; then
+  success "Network 'arr_net' already exists."
+else
+  docker network create --driver bridge arr_net >/dev/null
+  success "Network 'arr_net' created."
+fi
+
+# Warn about stale networks from old runs that can cause conflict errors
+STALE_NETS=()
+for old_name in "arr_stack" "arr-_arr_net" "arr-stack_arr_net" "arr_arr_net"; do
+  if docker network inspect "${old_name}" >/dev/null 2>&1; then
+    STALE_NETS+=("${old_name}")
+  fi
+done
+
+if [[ ${#STALE_NETS[@]} -gt 0 ]]; then
+  warn "Stale Docker networks found from a previous run:"
+  for net in "${STALE_NETS[@]}"; do
+    warn "  • ${net}"
+  done
+  warn "These can cause 'network not found' errors. Remove them with:"
+  for net in "${STALE_NETS[@]}"; do
+    warn "    docker network rm ${net}"
+  done
+fi
+
+# ---------------------------------------------------------------------------
 # Validate critical .env values
 # ---------------------------------------------------------------------------
 info "Validating .env ..."
@@ -255,6 +298,11 @@ echo "Next steps:"
 echo "  1. Review and edit .env if you haven't already"
 echo "  2. Start the stack:"
 echo "       docker compose up -d"
+echo ""
+echo "  If containers don't start or aren't reachable:"
+echo "       docker compose ps          # shows which containers are running"
+echo "       docker compose logs -f     # shows all logs (Ctrl+C to exit)"
+echo "       docker logs <name>         # logs for a single container"
 echo ""
 echo "  Optional services (disabled by default):"
 echo "     Lidarr   (music):  docker compose --profile lidarr  up -d lidarr"

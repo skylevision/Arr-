@@ -10,7 +10,7 @@
 #   Music     : Lidarr        (optional — profile: lidarr)
 #   Books     : Readarr       (optional — profile: readarr)
 #   Subtitles : Bazarr
-#   Requests  : Seerr
+#   Requests  : Jellyseerr
 #   Passwords : Vaultwarden  (Bitwarden-compatible)
 #   Live TV   : Threadfin
 #   DNS       : AdGuard Home
@@ -19,13 +19,18 @@
 # ============================================================
 # Usage:
 #   1. cp .env.example .env  &&  edit .env
-#   2. bash setup.sh          (creates all required directories)
+#   2. bash setup.sh          (creates directories + Docker network)
 #   3. docker compose up -d
 # ============================================================
 #
 # Tailscale gives all services a stable Tailscale IP (100.x.x.x)
 # accessible from anywhere — no router port-forwarding needed.
 # ============================================================
+
+# Explicit project name — prevents Docker Compose from deriving an
+# unpredictable name from the directory (e.g. "arr-" → "arr-_arr_net").
+# This name is used as the prefix for volumes in `docker volume ls`.
+name: arr-stack
 
 x-common: &common
   restart: unless-stopped
