@@ -12,7 +12,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 > Custom Formats und Quality Profiles für automatische German-DL-Downloads.
 
 > **Freunde & Familie einladen?** → [Freunde-Anleitung](FREUNDE_ANLEITUNG.md) —
-> Tailscale-Verbindung, Jellyfin & Jellyseerr einrichten auf Smartphone, PC und Fire TV Stick.
+> Tailscale-Verbindung, Jellyfin & Seerr einrichten auf Smartphone, PC und Fire TV Stick.
 
 > **Passwort-Manager?** → [Vaultwarden Setup](VAULTWARDEN_SETUP.md) —
 > Self-hosted Bitwarden-kompatiblen Passwort-Manager einrichten und mit allen Geräten verbinden.
@@ -32,7 +32,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 | **Lidarr** | Music collection manager *(optional)* | 8686 |
 | **Readarr** | Book / AudioBook manager *(optional)* | 8787 |
 | **Bazarr** | Subtitle management | 6767 |
-| **Jellyseerr** | Media request portal — Jellyfin-native fork of Overseerr | 5055 |
+| **Seerr** | Media request portal — supports Jellyfin, Plex, Emby | 5055 |
 | **Vaultwarden** | Self-hosted Bitwarden-compatible password manager | 8082 |
 | **Threadfin** | IPTV proxy — Live TV for Jellyfin | 34400 |
 | **AdGuard Home** | Network-wide DNS ad blocker & parental control | 8081 (UI), 53 (DNS) |
@@ -64,7 +64,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
   │  │                   │    Bazarr   │                    │   │
   │  │                   └─────────────┘                    │   │
   │  │  ┌──────────┐  ┌─────────────┐  ┌──────────────┐    │   │
-  │  │  │Jellyseerr│  │ AdGuard Home│  │   Jellyfin   │    │   │
+  │  │  │  Seerr   │  │ AdGuard Home│  │   Jellyfin   │    │   │
   │  │  └──────────┘  └─────────────┘  └──────┬───────┘    │   │
   │  │  ┌─────────────┐  ┌──────────────────────▼───────┐  │   │
   │  │  │ Vaultwarden │  │  Threadfin ──────► Live TV   │  │   │
@@ -215,9 +215,9 @@ Once authenticated, all services are reachable at `http://<tailscale-ip>:<port>`
 1. Open Bazarr (`http://<ip>:6767`) → *Settings → Radarr / Sonarr*
 2. Host: `radarr` / `sonarr`, use the API keys from each service.
 
-### Jellyseerr
+### Seerr
 
-1. Open Jellyseerr (`http://<ip>:5055`) → follow the setup wizard
+1. Open Seerr (`http://<ip>:5055`) → follow the setup wizard
 2. Connect your media server (Jellyfin: `http://jellyfin:8096`)
 3. Connect to Radarr (`http://radarr:7878`) and Sonarr (`http://sonarr:8989`) with their API keys.
 
@@ -319,7 +319,7 @@ Or use the **Unraid "Check for Updates"** button in the Docker tab.
 | Lidarr | 8686 | `LIDARR_PORT` (8686) |
 | Readarr | 8787 | `READARR_PORT` (8787) |
 | Bazarr | 6767 | `BAZARR_PORT` (6767) |
-| Jellyseerr | 5055 | `SEERR_PORT` (5055) |
+| Seerr | 5055 | `SEERR_PORT` (5055) |
 | Vaultwarden | 80 | `VAULTWARDEN_PORT` (8082) |
 | Threadfin | 34400 | `THREADFIN_PORT` (34400) |
 | AdGuard Setup | 3000 | `ADGUARD_SETUP_PORT` (3001) — first start only |

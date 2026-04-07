@@ -307,7 +307,7 @@ docker logs tailscale
 | Feld | Wert |
 |---|---|
 | **Name** | `seerr` |
-| **Repository** | `fallenbagel/jellyseerr:latest` |
+| **Repository** | `seerr/seerr:latest` |
 | **Network Type** | `arr_net` |
 
 **Ports:**

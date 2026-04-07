@@ -10,7 +10,7 @@
 #   Music     : Lidarr        (optional — profile: lidarr)
 #   Books     : Readarr       (optional — profile: readarr)
 #   Subtitles : Bazarr
-#   Requests  : Jellyseerr
+#   Requests  : Seerr
 #   Passwords : Vaultwarden  (Bitwarden-compatible)
 #   Live TV   : Threadfin
 #   DNS       : AdGuard Home
@@ -337,12 +337,13 @@ services:
       - sonarr
 
   # ==========================================================================
-  # JELLYSEERR — User-facing media request portal
-  # Jellyfin-native fork of Overseerr — supports Jellyfin, Radarr, Sonarr.
+  # SEERR — Media request portal
+  # Unified successor to Overseerr & Jellyseerr — supports Jellyfin, Plex, Emby.
   # Runs as the internal node user (no PUID/PGID).
+  # https://seerr.dev/ | https://github.com/seerr-team/seerr
   # ==========================================================================
   seerr:
-    image: fallenbagel/jellyseerr:latest
+    image: seerr/seerr:latest
     container_name: seerr
     restart: unless-stopped
     environment:
