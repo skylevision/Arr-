@@ -35,8 +35,13 @@ if [[ ! -f "${SCRIPT_DIR}/.env" ]]; then
   fi
 fi
 
-# shellcheck disable=SC1090
-source "${SCRIPT_DIR}/.env"
+# Safely load .env — only lines matching KEY=VALUE are evaluated.
+# Plain 'source .env' would execute every non-comment line as a shell
+# command; bare paths like /dev/dri would trigger "Is a directory" errors.
+set -a
+# shellcheck disable=SC1091
+source <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "${SCRIPT_DIR}/.env")
+set +a
 
 PUID="${PUID:-99}"
 PGID="${PGID:-100}"
