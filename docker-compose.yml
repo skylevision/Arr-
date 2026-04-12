@@ -41,7 +41,7 @@ x-common: &common
 
 networks:
   arr_net:
-    driver: bridge
+    external: true
     name: arr_net
 
 # ---------------------------------------------------------------------------
