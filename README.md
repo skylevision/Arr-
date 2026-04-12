@@ -190,6 +190,28 @@ Once authenticated, all services are reachable at `http://<tailscale-ip>:<port>`
 
 ## First-Time Configuration
 
+### SABnzbd — Usenet Downloader
+
+1. Open SABnzbd (`http://<ip>:8090`) → the Quick-Start wizard opens automatically
+2. **Usenet provider**: Enter your news server credentials (hostname, port, SSL, username, password, connections)
+   > If you don't have a Usenet provider yet: [Eweka](https://www.eweka.nl), [Newshosting](https://www.newshosting.com) and [UsenetExpress](https://www.usenetexpress.com) are popular options
+3. **Download folders** — set these under *Config → Folders*:
+
+   | Field | Value |
+   |---|---|
+   | Temporary Download Folder | `/downloads/usenet/incomplete` |
+   | Completed Download Folder | `/downloads/usenet/complete` |
+
+4. **API key** — copy it from *Config → General → API Key* — you'll need it for Radarr, Sonarr and Homepage
+5. **Categories** (optional but recommended) — *Config → Categories*:
+
+   | Name | Folder |
+   |---|---|
+   | `movies` | `movies` |
+   | `tv` | `tv` |
+
+   Radarr and Sonarr will use these category names when sending downloads.
+
 ### Prowlarr → Arr Apps
 
 1. Open Prowlarr (`http://<ip>:9696`) → *Settings → Apps*
@@ -200,7 +222,8 @@ Once authenticated, all services are reachable at `http://<tailscale-ip>:<port>`
 ### Radarr / Sonarr — Download Clients
 
 1. *Settings → Download Clients → +*
-2. **SABnzbd**: host `sabnzbd`, port `8080`
+2. **SABnzbd**: host `sabnzbd`, port `8080`, paste your SABnzbd API key
+   > `sabnzbd` is the internal Docker hostname — do **not** use `localhost` or the Unraid IP here
 
 ### Radarr — Root Folder
 
