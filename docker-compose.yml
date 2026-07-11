@@ -1,35 +1,32 @@
 # ============================================================
 # Unraid Arr Stack — docker-compose.yml
 # ============================================================
-# Services included:
-#   VPN       : Tailscale  (remote access)
+# Aktive Dienste:
+#   VPN       : Tailscale   (Remote-Zugriff)
 #   Usenet    : SABnzbd
-#   Indexers  : Prowlarr
-#   Movies    : Radarr
-#   TV        : Sonarr
-#   Music     : Lidarr        (optional — profile: lidarr)
-#   Books     : Readarr       (optional — profile: readarr)
-#   Subtitles : Bazarr
+#   Indexer   : Prowlarr
+#   Filme     : Radarr
+#   Serien    : Sonarr
+#   Untertitel: Bazarr
 #   Requests  : Seerr
-#   Passwords : Vaultwarden  (Bitwarden-compatible)
-#   Live TV   : Threadfin
-#   DNS       : AdGuard Home
 #   Player    : Jellyfin
 #   Dashboard : Homepage
-# ============================================================
-# Usage:
-#   1. cp .env.example .env  &&  edit .env
-#   2. bash setup.sh          (creates directories + Docker network)
-#   3. docker compose up -d
-# ============================================================
 #
-# Tailscale gives all services a stable Tailscale IP (100.x.x.x)
-# accessible from anywhere — no router port-forwarding needed.
+# Deaktivierte Dienste (Compose-Profile, bei Bedarf zuschalten):
+#   --profile vaultwarden : Vaultwarden (Passwort-Manager)
+#   --profile adguard     : AdGuard Home (DNS)
+#   --profile iptv        : Threadfin (Live TV)
+#   --profile lidarr      : Lidarr (Musik)
+#   --profile readarr     : Readarr (Bücher)
+# ============================================================
+# Nutzung:
+#   1. cp .env.example .env  &&  .env ausfüllen
+#   2. bash bootstrap.sh      (Ordner, Netzwerk, Start, Health-Wait, API-Config)
+# ============================================================
+# Image-Tags sind FEST GEPINNT (Stand 2026-07-11, gegen Registry
+# verifiziert). Update = Tag hier bumpen, committen, `docker compose up -d`.
 # ============================================================
 
-# Explicit project name — prevents Docker Compose from deriving an
-# unpredictable name from the directory (e.g. "arr-" → "arr-_arr_net").
-# This name is used as the prefix for volumes in `docker volume ls`.
 name: arr-stack
 
 x-common: &common
@@ -39,151 +36,78 @@ x-common: &common
     - PGID=${PGID:-100}
     - TZ=${TZ:-Europe/Berlin}
 
+# Hinweis: Ein expliziter environment-Block ERSETZT den Block aus x-common
+# vollständig (YAML-Merge ist kein Deep-Merge) — dort PUID/PGID/TZ wiederholen.
+
 networks:
   arr_net:
     external: true
     name: arr_net
 
 # ---------------------------------------------------------------------------
-# VOLUMES — all data lives on the Unraid array
+# VOLUMES — benannte Volumes als Bind auf ${APPDATA}/<dienst>
 # ---------------------------------------------------------------------------
 volumes:
   tailscale_data:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/tailscale
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/tailscale" }
   sabnzbd_data:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/sabnzbd
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/sabnzbd" }
   prowlarr_data:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/prowlarr
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/prowlarr" }
   radarr_data:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/radarr
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/radarr" }
   sonarr_data:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/sonarr
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/sonarr" }
   lidarr_data:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/lidarr
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/lidarr" }
   readarr_data:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/readarr
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/readarr" }
   bazarr_data:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/bazarr
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/bazarr" }
   seerr_data:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/seerr
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/seerr" }
   vaultwarden_data:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/vaultwarden
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/vaultwarden" }
   threadfin_conf:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/threadfin/conf
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/threadfin/conf" }
   threadfin_temp:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/threadfin/temp
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/threadfin/temp" }
   adguard_work:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/adguardhome/work
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/adguardhome/work" }
   adguard_conf:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/adguardhome/conf
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/adguardhome/conf" }
   jellyfin_config:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/jellyfin/config
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/jellyfin/config" }
   jellyfin_cache:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/jellyfin/cache
-
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/jellyfin/cache" }
   homepage_data:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${APPDATA}/homepage
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/homepage" }
 
 # ---------------------------------------------------------------------------
 services:
   # ==========================================================================
-  # TAILSCALE — Remote access VPN
-  #
-  # Runs in host network mode so it can reach every published container port
-  # on the Unraid host. All services become available at your Tailscale IP
-  # (100.x.x.x) without any router port-forwarding.
-  #
-  # First start: the container prints an auth URL to its logs — open it in
-  # your browser to register this node in your Tailnet:
-  #   docker logs tailscale
-  #
-  # Or set TS_AUTHKEY in .env (reusable / pre-auth key from admin.tailscale.com).
+  # TAILSCALE — Remote-Zugriff (host-Netz, erreicht alle veröffentlichten Ports)
+  # Auth: TS_AUTHKEY in .env (tskey-auth-…) oder interaktiv via docker logs.
   # ==========================================================================
   tailscale:
-    image: tailscale/tailscale:latest
+    image: tailscale/tailscale:v1.94.2
     container_name: tailscale
     hostname: ${TS_HOSTNAME:-arr-stack}
     restart: unless-stopped
@@ -199,38 +123,44 @@ services:
       - TS_AUTHKEY=${TS_AUTHKEY:-}
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_USERSPACE=false
-      # Optional: expose services via Tailscale Serve (HTTPS on Tailnet)
-      # - TS_SERVE_CONFIG=/var/lib/tailscale/serve.json
-      # Extra flags — e.g. --advertise-tags=tag:server
       - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:-}
     healthcheck:
-      test: ["CMD-SHELL", "tailscale status --json | grep -q '\"BackendState\":\"Running\"'"]
+      # Achtung: JSON-Ausgabe enthält ein Leerzeichen nach dem Doppelpunkt
+      test: ["CMD-SHELL", "tailscale status --json | grep -q '\"BackendState\": *\"Running\"'"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 15s
+      start_period: 30s
 
   # ==========================================================================
-  # SABnzbd — Usenet downloader
+  # SABnzbd — Usenet-Downloader
+  # Mountet wie Radarr/Sonarr das komplette ${DATA} als /data (TRaSH-Layout):
+  # gleiche Pfade in allen Apps → keine Remote Path Mappings, Hardlinks möglich.
+  # Download-Ordner (per API gesetzt): /data/downloads/usenet/{incomplete,complete}
   # ==========================================================================
   sabnzbd:
-    image: lscr.io/linuxserver/sabnzbd:latest
+    image: lscr.io/linuxserver/sabnzbd:4.5.5-ls247
     container_name: sabnzbd
     <<: *common
     ports:
       - "${SABNZBD_PORT:-8090}:8080"
     volumes:
       - sabnzbd_data:/config
-      - ${DATA}/downloads/usenet:/downloads/usenet
+      - ${DATA}:/data
     networks:
       - arr_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://localhost:8080/api?mode=version' >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ==========================================================================
-  # PROWLARR — Indexer / tracker manager
-  # Syncs indexers to Radarr, Sonarr, Lidarr, Readarr automatically.
+  # PROWLARR — Indexer-Manager (Single Source of Truth, synct zu Radarr/Sonarr)
   # ==========================================================================
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:latest
+    image: lscr.io/linuxserver/prowlarr:2.3.5.5327-ls141
     container_name: prowlarr
     <<: *common
     ports:
@@ -239,31 +169,44 @@ services:
       - prowlarr_data:/config
     networks:
       - arr_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9696/ping >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ==========================================================================
-  # RADARR — Movie collection manager
+  # RADARR — Filme
   # ==========================================================================
   radarr:
-    image: lscr.io/linuxserver/radarr:latest
+    image: lscr.io/linuxserver/radarr:6.1.1.10360-ls298
     container_name: radarr
     <<: *common
     ports:
       - "${RADARR_PORT:-7878}:7878"
     volumes:
       - radarr_data:/config
-      # Single /data mount so Radarr can create hardlinks between downloads and media
       - ${DATA}:/data
     networks:
       - arr_net
     depends_on:
-      - prowlarr
-      - sabnzbd
+      prowlarr:
+        condition: service_healthy
+      sabnzbd:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:7878/ping >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ==========================================================================
-  # SONARR — TV show collection manager
+  # SONARR — Serien
   # ==========================================================================
   sonarr:
-    image: lscr.io/linuxserver/sonarr:latest
+    image: lscr.io/linuxserver/sonarr:4.0.17.2952-ls306
     container_name: sonarr
     <<: *common
     ports:
@@ -274,76 +217,48 @@ services:
     networks:
       - arr_net
     depends_on:
-      - prowlarr
-      - sabnzbd
+      prowlarr:
+        condition: service_healthy
+      sabnzbd:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8989/ping >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ==========================================================================
-  # LIDARR — Music collection manager  (optional)
-  # ==========================================================================
-  lidarr:
-    image: lscr.io/linuxserver/lidarr:latest
-    container_name: lidarr
-    <<: *common
-    profiles:
-      - lidarr
-    ports:
-      - "${LIDARR_PORT:-8686}:8686"
-    volumes:
-      - lidarr_data:/config
-      - ${DATA}:/data
-    networks:
-      - arr_net
-    depends_on:
-      - prowlarr
-
-  # ==========================================================================
-  # READARR — Book / AudioBook collection manager  (optional)
-  # ==========================================================================
-  readarr:
-    image: lscr.io/linuxserver/readarr:develop
-    container_name: readarr
-    <<: *common
-    profiles:
-      - readarr
-    ports:
-      - "${READARR_PORT:-8787}:8787"
-    volumes:
-      - readarr_data:/config
-      - ${DATA}:/data
-    networks:
-      - arr_net
-    depends_on:
-      - prowlarr
-
-  # ==========================================================================
-  # BAZARR — Subtitle manager for Radarr / Sonarr
+  # BAZARR — Untertitel (braucht nur die fertigen Medien, kein /downloads)
   # ==========================================================================
   bazarr:
-    image: lscr.io/linuxserver/bazarr:latest
+    image: lscr.io/linuxserver/bazarr:v1.5.6-ls342
     container_name: bazarr
     <<: *common
     ports:
       - "${BAZARR_PORT:-6767}:6767"
     volumes:
       - bazarr_data:/config
-      # Bazarr only needs the finished media — not /downloads.
-      # Radarr/Sonarr mount the full ${DATA}:/data for hardlink support;
-      # Bazarr has no need for the downloads directory.
       - ${DATA}/media:/data/media
     networks:
       - arr_net
     depends_on:
-      - radarr
-      - sonarr
+      radarr:
+        condition: service_healthy
+      sonarr:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs -o /dev/null http://localhost:6767"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ==========================================================================
-  # SEERR — Media request portal
-  # Unified successor to Overseerr & Jellyseerr — supports Jellyfin, Plex, Emby.
-  # Runs as the internal node user (no PUID/PGID).
-  # https://seerr.dev/ | https://github.com/seerr-team/seerr
+  # SEERR — Media-Request-Portal (läuft als interner node-User, kein PUID/PGID)
   # ==========================================================================
   seerr:
-    image: seerr/seerr:latest
+    image: seerr/seerr:v3.1.0
     container_name: seerr
     restart: unless-stopped
     environment:
@@ -355,32 +270,85 @@ services:
     networks:
       - arr_net
     depends_on:
-      - jellyfin
-      - radarr
-      - sonarr
+      jellyfin:
+        condition: service_healthy
+      radarr:
+        condition: service_healthy
+      sonarr:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:5055/api/v1/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ==========================================================================
-  # VAULTWARDEN — Self-hosted Bitwarden-compatible password manager
-  #
-  # Accessible via Tailscale (http://<tailscale-ip>:8082).
-  # Bitwarden mobile/desktop clients require HTTPS — enable via Tailscale Serve:
-  #   docker exec tailscale tailscale serve https:443 / http://localhost:8082
-  # This gives a valid cert at https://<hostname>.<tailnet>.ts.net
-  #
-  # First start:
-  #   1. Open http://<ip>:8082/admin  (requires VW_ADMIN_TOKEN in .env)
-  #   2. Set VW_SIGNUPS_ALLOWED=false in .env after creating all accounts
+  # JELLYFIN — Media-Server (bringt eigenen Healthcheck im Image mit)
+  # ==========================================================================
+  jellyfin:
+    image: jellyfin/jellyfin:10.11.8
+    container_name: jellyfin
+    restart: unless-stopped
+    user: "${PUID:-99}:${PGID:-100}"
+    ports:
+      - "${JELLYFIN_PORT_HTTP:-8096}:8096"
+      - "${JELLYFIN_PORT_HTTPS:-8920}:8920"
+      # DLNA/Auto-Discovery bewusst aus (kollidiert mit Unraid-Diensten):
+      # - "7359:7359/udp"
+      # - "1900:1900/udp"
+    volumes:
+      - jellyfin_config:/config
+      - jellyfin_cache:/cache
+      - ${DATA}/media:/data/media:ro
+    environment:
+      - TZ=${TZ:-Europe/Berlin}
+      - JELLYFIN_PublishedServerUrl=http://${UNRAID_IP:-192.168.1.100}:${JELLYFIN_PORT_HTTP:-8096}
+    # ---- Hardware-Transcoding (Intel QuickSync/VAAPI) bei Bedarf: ----
+    # devices:
+    #   - /dev/dri:/dev/dri
+    networks:
+      - arr_net
+
+  # ==========================================================================
+  # HOMEPAGE — Dashboard (bringt eigenen Healthcheck im Image mit)
+  # ==========================================================================
+  homepage:
+    image: ghcr.io/gethomepage/homepage:v1.12.3
+    container_name: homepage
+    restart: unless-stopped
+    ports:
+      - "${HOMEPAGE_PORT:-3000}:3000"
+    volumes:
+      - homepage_data:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
+      - TZ=${TZ:-Europe/Berlin}
+      - HOMEPAGE_VAR_UNRAID_IP=${UNRAID_IP:-192.168.1.100}
+      # Ohne diese Variable blockt Homepage ≥v0.234 fremde Hostnamen
+      - HOMEPAGE_ALLOWED_HOSTS=${HOMEPAGE_ALLOWED_HOSTS:-*}
+    networks:
+      - arr_net
+
+  # ==========================================================================
+  # VAULTWARDEN — deaktiviert (--profile vaultwarden), Einrichtung folgt später
+  # DOMAIN darf NICHT leer übergeben werden (Crash ab 1.35) — Default ist die
+  # lokale HTTP-URL; für Bitwarden-Clients später VW_DOMAIN auf HTTPS setzen.
   # ==========================================================================
   vaultwarden:
-    image: vaultwarden/server:latest
+    image: vaultwarden/server:1.35.4
     container_name: vaultwarden
     restart: unless-stopped
+    profiles:
+      - vaultwarden
     environment:
       - TZ=${TZ:-Europe/Berlin}
       - WEBSOCKET_ENABLED=true
       - SIGNUPS_ALLOWED=${VW_SIGNUPS_ALLOWED:-true}
       - ADMIN_TOKEN=${VW_ADMIN_TOKEN:-}
-      - DOMAIN=${VW_DOMAIN:-}
+      - DOMAIN=${VW_DOMAIN:-http://${UNRAID_IP:-192.168.1.100}:${VAULTWARDEN_PORT:-8082}}
       - LOG_LEVEL=warn
     ports:
       - "${VAULTWARDEN_PORT:-8082}:80"
@@ -388,33 +356,26 @@ services:
       - vaultwarden_data:/data
     networks:
       - arr_net
+    healthcheck:
+      test: ["CMD", "/healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   # ==========================================================================
-  # ADGUARD HOME — Network-wide DNS ad blocker & parental control
-  #
-  # Port 53 is bound to UNRAID_IP to avoid conflicting with Unraid's own
-  # resolver on 127.0.0.1:53.  Set UNRAID_IP in .env to your server's LAN IP.
-  #
-  # First start: open the setup wizard at http://<unraid-ip>:3000
-  # After setup, the web UI moves to port 80 inside the container —
-  # mapped to ADGUARD_WEBUI_PORT (default 8081) on the host.
-  # Note: 3000 is also used by Homepage — use ADGUARD_SETUP_PORT to avoid
-  # a conflict during the one-time setup wizard (default 3001).
-  #
-  # Point your router's primary DNS to <UNRAID_IP> to filter ads network-wide.
+  # ADGUARD HOME — deaktiviert (--profile adguard), Einrichtung folgt später
   # ==========================================================================
   adguardhome:
-    image: adguard/adguardhome:latest
+    image: adguard/adguardhome:v0.107.73
     container_name: adguardhome
     restart: unless-stopped
+    profiles:
+      - adguard
     ports:
-      # DNS — bound to Unraid IP to avoid host resolver conflict
       - "${UNRAID_IP}:53:53/tcp"
       - "${UNRAID_IP}:53:53/udp"
-      # One-time setup wizard (only needed on first start)
       - "${ADGUARD_SETUP_PORT:-3001}:3000"
-      # Web UI (after initial setup)
-      # Default 8081 — avoids conflict with SABnzbd web UI on 8080
       - "${ADGUARD_WEBUI_PORT:-8081}:80"
     volumes:
       - adguard_work:/opt/adguardhome/work
@@ -425,56 +386,15 @@ services:
       - arr_net
 
   # ==========================================================================
-  # JELLYFIN — Media server (open-source Plex alternative)
-  # ==========================================================================
-  jellyfin:
-    image: jellyfin/jellyfin:latest
-    container_name: jellyfin
-    <<: *common
-    ports:
-      - "${JELLYFIN_PORT_HTTP:-8096}:8096"
-      - "${JELLYFIN_PORT_HTTPS:-8920}:8920"
-      # DLNA / auto-discovery — disabled by default.
-      # These ports often conflict with Unraid's own DLNA/Avahi service.
-      # Uncomment only if you need local network auto-discovery:
-      # - "7359:7359/udp"
-      # - "1900:1900/udp"
-    volumes:
-      - jellyfin_config:/config
-      - jellyfin_cache:/cache
-      - ${DATA}/media:/data/media:ro
-    environment:
-      # TZ must be repeated here — the explicit environment block overrides x-common
-      - TZ=${TZ:-Europe/Berlin}
-      - JELLYFIN_PublishedServerUrl=http://${UNRAID_IP:-192.168.1.100}:${JELLYFIN_PORT_HTTP:-8096}
-    # ---- Hardware transcoding ----
-    # Intel QuickSync / VAAPI: uncomment the device line below
-    # devices:
-    #   - /dev/dri:/dev/dri
-    #
-    # Nvidia: uncomment runtime and add your GPU
-    # runtime: nvidia
-    # environment:
-    #   - NVIDIA_VISIBLE_DEVICES=all
-    networks:
-      - arr_net
-    user: "${PUID:-99}:${PGID:-100}"
-
-  # ==========================================================================
-  # THREADFIN — IPTV proxy / Live TV for Jellyfin
-  #
-  # Emulates an HDHomeRun tuner so Jellyfin can consume M3U playlists as
-  # Live TV. Supports multiple M3U sources, EPG via XMLTV, channel filtering
-  # and logo management.
-  #
-  # Recommended free German TV sources:
-  #   M3U: https://raw.githubusercontent.com/jnk22/kodinerds-iptv/master/iptv/kodi/kodi_tv.m3u
-  #   EPG: see IPTV_SETUP.md
+  # THREADFIN — deaktiviert (--profile iptv), Einrichtung folgt später
+  # Kein verlässliches Versions-Tag im Docker Hub → Pin per Digest.
   # ==========================================================================
   threadfin:
-    image: fyb3roptik/threadfin:latest
+    image: fyb3roptik/threadfin@sha256:863fb0c2945617b4aa48b79eaa655954df72d68fbee6e49a1465934ceb3f057e
     container_name: threadfin
     <<: *common
+    profiles:
+      - iptv
     ports:
       - "${THREADFIN_PORT:-34400}:34400"
     volumes:
@@ -484,24 +404,32 @@ services:
       - arr_net
 
   # ==========================================================================
-  # HOMEPAGE — Unified dashboard for all services
+  # LIDARR / READARR — deaktiviert; vor einer Aktivierung Version pinnen!
   # ==========================================================================
-  homepage:
-    image: ghcr.io/gethomepage/homepage:latest
-    container_name: homepage
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest # vor Aktivierung pinnen
+    container_name: lidarr
     <<: *common
+    profiles:
+      - lidarr
     ports:
-      - "${HOMEPAGE_PORT:-3000}:3000"
+      - "${LIDARR_PORT:-8686}:8686"
     volumes:
-      - homepage_data:/app/config
-      # Allow Homepage to read Docker socket for live container status
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      - PUID=${PUID:-99}
-      - PGID=${PGID:-100}
-      - TZ=${TZ:-Europe/Berlin}
-      # Exposes UNRAID_IP as a template variable in services.yaml
-      # Usage: href: http://{{HOMEPAGE_VAR_UNRAID_IP}}:7878
-      - HOMEPAGE_VAR_UNRAID_IP=${UNRAID_IP:-192.168.1.100}
+      - lidarr_data:/config
+      - ${DATA}:/data
+    networks:
+      - arr_net
+
+  readarr:
+    image: lscr.io/linuxserver/readarr:develop # vor Aktivierung pinnen
+    container_name: readarr
+    <<: *common
+    profiles:
+      - readarr
+    ports:
+      - "${READARR_PORT:-8787}:8787"
+    volumes:
+      - readarr_data:/config
+      - ${DATA}:/data
     networks:
       - arr_net
