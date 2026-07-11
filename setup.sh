@@ -87,7 +87,9 @@ info "Creating data directories under ${DATA} ..."
 
 DATA_DIRS=(
   media/movies
+  media/movies-4k
   media/tv
+  media/tv-4k
   media/music
   media/books
   downloads/usenet/incomplete

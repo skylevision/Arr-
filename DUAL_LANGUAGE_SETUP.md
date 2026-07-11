@@ -1,13 +1,18 @@
-# Radarr & Sonarr — Dual Language Setup (Deutsch + Englisch)
+# Radarr & Sonarr — Dual Language Setup (Deutsch + Englisch) für 4K
 
-Anleitung für automatische „German DL"-Downloads: Radarr und Sonarr laden bevorzugt
-Releases herunter, die **beide Sprachen** (Deutsch + Englisch) enthalten. Ist kein
-Dual-Language-Release verfügbar, wird wahlweise die deutsche oder englische Fassung
-als Fallback genommen.
+Anleitung für automatische „German DL"-Downloads in **4K / 2160p mit HDR**:
+Radarr und Sonarr laden bevorzugt Releases herunter, die **beide Sprachen**
+(Deutsch + Englisch) enthalten. Ist kein Dual-Language-Release verfügbar, wird
+wahlweise die deutsche oder englische Fassung als Fallback genommen.
 
-> Basiert auf:
-> - [PCJones — radarr-sonarr-german-dual-language](https://github.com/PCJones/radarr-sonarr-german-dual-language)
-> - [TRaSH Guides — German Quality Profiles](https://trash-guides.info/Radarr/radarr-setup-quality-profiles-german-en/)
+> Basiert auf (Stand: Juli 2026, Werte gegen Original-Quellen verifiziert):
+> - [PCJones — radarr-sonarr-german-dual-language](https://github.com/PCJones/radarr-sonarr-german-dual-language) — Scoring-System
+> - [TRaSH Guides — German Quality Profiles](https://trash-guides.info/Radarr/radarr-setup-quality-profiles-german-en/) — HDR-Formate & 4K-Profile
+> - Sprach-/Quell-IDs direkt aus dem Radarr/Sonarr-Quellcode verifiziert
+
+> ⚠️ **Nicht mischen:** Diese Anleitung nutzt das **PCJones-Scoring** (German DL = 25000).
+> TRaSH verwendet eine andere Skala (German DL = 11000). Wer TRaSH-Profile per
+> Recyclarr/Notifiarr synct, darf die PCJones-Scores nicht parallel im selben Profil verwenden.
 
 ---
 
@@ -15,35 +20,54 @@ als Fallback genommen.
 
 1. [Konzept & Funktionsweise](#1-konzept--funktionsweise)
 2. [Voraussetzungen](#2-voraussetzungen)
-3. [Globale Einstellungen](#3-globale-einstellungen)
-4. [Custom Formats importieren](#4-custom-formats-importieren)
-5. [Quality Profile anlegen](#5-quality-profile-anlegen)
-6. [Custom Format Scoring](#6-custom-format-scoring)
-7. [Sonarr — Besonderheiten](#7-sonarr--besonderheiten)
-8. [Fallback-Strategie wählen](#8-fallback-strategie-wählen)
-9. [Testen & Verifizieren](#9-testen--verifizieren)
-10. [Troubleshooting](#10-troubleshooting)
+3. [Medien-Ordner trennen (4K vs. 1080p)](#3-medien-ordner-trennen-4k-vs-1080p)
+4. [Globale Einstellungen](#4-globale-einstellungen)
+5. [Custom Formats — Sprache](#5-custom-formats--sprache)
+6. [Custom Formats — HDR / Dolby Vision](#6-custom-formats--hdr--dolby-vision)
+7. [Custom Formats — Qualität (2160p)](#7-custom-formats--qualität-2160p)
+8. [Quality Profile: German DL — 4K](#8-quality-profile-german-dl--4k)
+9. [Custom Format Scoring — Übersicht](#9-custom-format-scoring--übersicht)
+10. [Sonarr — Besonderheiten](#10-sonarr--besonderheiten)
+11. [Fallback-Strategie wählen](#11-fallback-strategie-wählen)
+12. [Zwei Profile vs. zwei Instanzen](#12-zwei-profile-vs-zwei-instanzen)
+13. [Jellyfin — 4K & HDR-Wiedergabe](#13-jellyfin--4k--hdr-wiedergabe)
+14. [Testen & Verifizieren](#14-testen--verifizieren)
+15. [Troubleshooting](#15-troubleshooting)
 
 ---
 
 ## 1. Konzept & Funktionsweise
 
 Radarr und Sonarr werten Releases anhand von **Custom Format Scores** aus.
-Das Ziel: ein Dual-Language-Release soll immer höher scored werden als jedes
-Single-Language-Release, unabhängig von der Qualitätsstufe.
+Das Ziel: ein 4K Dual-Language-Release mit HDR soll immer höher scored werden
+als jedes Single-Language-Release — und innerhalb der DL-Releases gewinnt
+das beste Bild (Remux > Bluray > WEB, DV > HDR10 > SDR).
 
 ```
-Score-Hierarchie:
+Score-Hierarchie (4K-Profil):
 
-  German DL Release (1080p)     → Score: ~27.000  ← bevorzugt
-  German DL Release (720p)      → Score: ~25.000  ← noch bevorzugt
-  German-Only Release (1080p)   → Score: ~19.000  ← Fallback
-  English-Only Release (1080p)  → Score:  ~6.000  ← letzter Ausweg
-  Unbekannte Sprache            → Score: -30.000  ← blockiert
+  German DL + 2160p Remux + DV + HDR    → ~57.500  ← ideal
+  German DL + 2160p Remux + HDR10       → ~56.500  ← sehr gut
+  German DL + 2160p WEB-DL + HDR10      → ~52.500  ← gut
+  German DL + 2160p WEB-DL (SDR)        → ~52.000  ← akzeptabel
+  Deutsch Only + 2160p Remux + HDR      → ~21.500  ← Fallback
+  Englisch Only + 2160p WEB-DL          → ~17.000  ← letzter Ausweg
+  Andere Sprache                        → -30.000  ✗ blockiert
+  Mic-Dubbed                            → -35.000  ✗ blockiert
 ```
 
-**German DL** bezeichnet Releases die in der Szene mit beiden Audiotracks
-erscheinen — erkennbar an Markierungen wie `German.DL`, `[DE+EN]`, `[ger,eng]`.
+**German DL** bezeichnet Releases die mit beiden Audiotracks erscheinen —
+erkennbar an Markierungen wie `German.DL`, `[DE+EN]`, `[ger,eng]`.
+
+**HDR-Hierarchie** (was das Bild verbessert, absteigend):
+- **Dolby Vision mit HDR10-Fallback** — dynamisches HDR, läuft auch auf Nicht-DV-Geräten
+- **HDR10+** — dynamisches HDR (v. a. Samsung)
+- **HDR10** — statisches HDR, breiteste Kompatibilität
+- **HLG** — Broadcast-HDR
+- **SDR** — kein HDR
+
+> ⚠️ **DV ohne HDR10-Fallback** (manche WEB-Releases) zeigt auf Nicht-DV-Geräten
+> falsche Farben (grün/lila) — dafür gibt es unten ein Straf-Custom-Format.
 
 ---
 
@@ -54,15 +78,60 @@ erscheinen — erkennbar an Markierungen wie `German.DL`, `[DE+EN]`, `[ger,eng]`
 | **Radarr** | Version 5+ (aktuell) |
 | **Sonarr** | **Version 4** — Version 3 wird nicht unterstützt |
 | **Prowlarr** | Indexer konfiguriert und mit Radarr/Sonarr verbunden |
-| **Indexer** | Mindestens ein Indexer mit deutschen Releases (z. B. HDCity, RSBay, HDS, NBL) |
+| **Indexer** | Mindestens ein Indexer mit deutschen 4K-Releases |
+| **Speicher** | 4K Remux: ~50–80 GB pro Film, WEB-DL: ~15–25 GB |
+| **TV/Monitor** | 4K-fähig, idealerweise HDR10 oder Dolby Vision |
+| **Netzwerk** | Lokal: Gigabit-LAN empfohlen (4K Remux streamt mit 80+ Mbit/s) |
+
+> **Speicher-Tipp:** 4K-Dateien sind 3–5× größer als 1080p. Für 100 Filme
+> in 4K Remux brauchst du ~5 TB, als WEB-DL ~2 TB.
 
 ---
 
-## 3. Globale Einstellungen
+## 3. Medien-Ordner trennen (4K vs. 1080p)
+
+Für 4K empfehlen wir **getrennte Bibliotheken** — so kann Jellyfin die richtige
+Version je nach Client ausspielen (4K-TV bekommt 4K, Handy bekommt 1080p).
+
+### 3.1 Ordner anlegen
+
+```bash
+mkdir -p /mnt/user/data/media/movies-4k
+mkdir -p /mnt/user/data/media/tv-4k
+chown 99:100 /mnt/user/data/media/movies-4k /mnt/user/data/media/tv-4k
+```
+
+> `setup.sh` legt diese Ordner ab sofort automatisch mit an.
+
+### 3.2 Root Folders in Radarr / Sonarr
+
+**Radarr:** `Settings → Media Management → Root Folders → Add Root Folder`
+
+| Root Folder | Verwendung |
+|---|---|
+| `/data/media/movies` | 1080p-Filme |
+| `/data/media/movies-4k` | 4K-Filme (dieses Profil) |
+
+**Sonarr:** analog mit `/data/media/tv` und `/data/media/tv-4k`.
+
+### 3.3 Jellyfin-Bibliotheken
+
+In Jellyfin separate Bibliotheken anlegen:
+- **Filme** → `/data/media/movies`
+- **Filme (4K)** → `/data/media/movies-4k`
+- **Serien** → `/data/media/tv`
+- **Serien (4K)** → `/data/media/tv-4k`
+
+> **Warum getrennt?** Wenn ein Client kein 4K/HDR kann, muss Jellyfin transkodieren —
+> das frisst CPU/GPU. Mit getrennten Bibliotheken steuerst du den Zugriff pro Nutzer.
+
+---
+
+## 4. Globale Einstellungen
 
 Diese Einstellungen müssen **vor** dem Anlegen der Quality Profiles gesetzt werden.
 
-### 3.1 Propers & Repacks deaktivieren
+### 4.1 Propers & Repacks deaktivieren
 
 Radarr und Sonarr würden sonst automatisch neuere Versionen downloaden,
 was in Kombination mit Custom Formats zu Download-Schleifen führt.
@@ -74,17 +143,15 @@ was in Kombination mit Custom Formats zu Download-Schleifen führt.
 Propers and Repacks:   Do Not Prefer
 ```
 
-> Repacks werden stattdessen über Custom Formats gesteuert (Repack/Proper: +5).
+### 4.2 Sprache im Quality Profile auf „Any" setzen
 
-### 3.2 Sprache im Quality Profile auf „Any" setzen
-
-Nicht hier, sondern im Quality Profile selbst (→ Schritt 5).
+Nicht hier, sondern im Quality Profile selbst (→ Schritt 8).
 Der Grund: Radarr/Sonarr matchen sonst nur Releases, deren Metadaten
 exakt die gewählte Sprache angeben — was bei deutschen Releases oft fehlt.
 
 ---
 
-## 4. Custom Formats importieren
+## 5. Custom Formats — Sprache
 
 ### Wo importieren?
 
@@ -93,11 +160,15 @@ exakt die gewählte Sprache angeben — was bei deutschen Releases oft fehlt.
 
 JSON in das Textfeld einfügen → **Import** klicken → **Save**.
 
+> Verifizierte Sprach-IDs (aus dem Radarr/Sonarr-Quellcode, identisch in beiden):
+> Englisch = `1`, Deutsch = `4`, Original = `-2`
+
 ---
 
 ### CF 1: German DL
 
-Erkennt alle gängigen Dual-Language-Markierungen in Release-Namen.
+Erkennt alle gängigen Dual-Language-Markierungen in Release-Namen
+(ohne WEB-DL-Fehltreffer).
 
 ```json
 {
@@ -165,7 +236,6 @@ im Titel tragen, aber beide Sprachen als Metadaten mitbringen.
 ### CF 3: Language: Not ENG/GER
 
 Blockiert Releases, die weder Englisch noch Deutsch enthalten.
-Verhindert z. B. französische oder spanische Releases.
 
 ```json
 {
@@ -203,8 +273,8 @@ Verhindert z. B. französische oder spanische Releases.
 }
 ```
 
-> ⚠️ Alle drei Spezifikationen müssen `required: false` haben —
-> das Format greift, wenn **alle drei** zutreffen (AND-Logik bei required=false mit negate=true).
+> Alle drei Spezifikationen müssen `required: false` haben —
+> das Format greift, wenn **alle drei** zutreffen.
 
 ---
 
@@ -286,14 +356,16 @@ Verhindert z. B. französische oder spanische Releases.
 }
 ```
 
-> **Nur eines der beiden importieren** (CF 4a oder CF 4b) — je nach gewünschtem Fallback
-> (→ [Schritt 8](#8-fallback-strategie-wählen)).
+> **Nur eines der beiden importieren** (CF 4a oder CF 4b) — je nach gewünschtem
+> Fallback (→ [Schritt 11](#11-fallback-strategie-wählen)).
 
 ---
 
-### CF 5: MIC Dubbed *(optional, empfohlen)*
+### CF 5: MIC Dubbed
 
-Blockiert Releases mit Mikrofon-Synchronisation (schlechte Tonqualität).
+Blockiert Releases mit Mikrofon-/Line-Synchronisation (schlechte Tonqualität).
+Gerade die **ersten** German-DL-Releases eines Films haben oft einen
+Mic-Dubbed-Ton — dieses CF verhindert, dass sie geladen werden.
 
 ```json
 {
@@ -306,7 +378,96 @@ Blockiert Releases mit Mikrofon-Synchronisation (schlechte Tonqualität).
       "negate": false,
       "required": true,
       "fields": {
-        "value": "(?i)\\bMIC[-. ]?DUB(bed)?\\b"
+        "value": "(?i)\\b(MIC|LINE)[-. ]?DUB(bed)?\\b|\\bLD\\b"
+      }
+    }
+  ]
+}
+```
+
+> Laut PCJones vor allem für **Radarr** wichtig (Kino-Releases) — bei Sonarr
+> schadet es aber auch nicht. Wer Mic-Dubs als Zwischenlösung akzeptiert
+> (wird später durch sauberes Release ersetzt): Score `-100` statt `-35000`.
+
+---
+
+## 6. Custom Formats — HDR / Dolby Vision
+
+Moderner TRaSH-Ansatz (verifiziert Juli 2026): **ein** generisches HDR-Format
+plus kleine „Boost"-Formate — statt vieler einzelner DV/HDR10-Formate.
+In **Radarr und Sonarr** importieren.
+
+---
+
+### CF 6: HDR
+
+Erkennt jede Form von HDR (HDR, HDR10, HDR10+, DV, HLG, PQ).
+
+```json
+{
+  "name": "HDR",
+  "includeCustomFormatWhenRenaming": false,
+  "specifications": [
+    {
+      "name": "HDR",
+      "implementation": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "fields": {
+        "value": "(?i)\\bHDR(10(\\+|P(lus)?)?)?\\b"
+      }
+    },
+    {
+      "name": "DV",
+      "implementation": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "fields": {
+        "value": "(?i)\\b(dv|dovi|dolby[ .]?v(ision)?)\\b"
+      }
+    },
+    {
+      "name": "HLG",
+      "implementation": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "fields": {
+        "value": "(?i)\\bHLG\\b"
+      }
+    },
+    {
+      "name": "PQ",
+      "implementation": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "fields": {
+        "value": "(?i)\\bPQ\\b"
+      }
+    }
+  ]
+}
+```
+
+> Alle Spezifikationen `required: false` — **eine** davon reicht (OR-Logik).
+
+---
+
+### CF 7: DV Boost
+
+Bevorzugt Dolby Vision zusätzlich zum generischen HDR-Score.
+
+```json
+{
+  "name": "DV Boost",
+  "includeCustomFormatWhenRenaming": false,
+  "specifications": [
+    {
+      "name": "Dolby Vision",
+      "implementation": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "fields": {
+        "value": "(?i)\\b(dv|dovi|dolby[ .]?v(ision)?)\\b"
       }
     }
   ]
@@ -315,144 +476,401 @@ Blockiert Releases mit Mikrofon-Synchronisation (schlechte Tonqualität).
 
 ---
 
-## 5. Quality Profile anlegen
+### CF 8: HDR10+ Boost
+
+```json
+{
+  "name": "HDR10+ Boost",
+  "includeCustomFormatWhenRenaming": false,
+  "specifications": [
+    {
+      "name": "HDR10+",
+      "implementation": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "fields": {
+        "value": "(?i)\\bHDR10(?=[+]|P(lus)?\\b)"
+      }
+    }
+  ]
+}
+```
+
+---
+
+### CF 9: DV (ohne HDR10-Fallback)
+
+**Wichtig:** WEB-Releases mit reinem Dolby Vision (ohne HDR10-Layer) zeigen
+auf Nicht-DV-Geräten falsche Farben. Dieses CF bestraft solche Releases.
+
+```json
+{
+  "name": "DV (w/o HDR10 fallback)",
+  "includeCustomFormatWhenRenaming": false,
+  "specifications": [
+    {
+      "name": "Dolby Vision",
+      "implementation": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "fields": {
+        "value": "(?i)\\b(dv|dovi|dolby[ .]?v(ision)?)\\b"
+      }
+    },
+    {
+      "name": "Not HDR",
+      "implementation": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "fields": {
+        "value": "(?i)\\bHDR(10)?(\\+|P(lus)?)?\\b"
+      }
+    }
+  ]
+}
+```
+
+> Wenn **alle** deine Abspielgeräte Dolby Vision beherrschen (z. B. nur
+> Nvidia Shield / Apple TV 4K am OLED): Score `0` statt `-10000`.
+
+---
+
+## 7. Custom Formats — Qualität (2160p)
+
+Diese CFs sorgen dafür, dass innerhalb der German-DL-Releases die beste
+Quelle gewinnt. **Radarr und Sonarr haben unterschiedliche IDs** —
+die JSONs unten sind daher pro App getrennt.
+
+> Verifizierte Quell-IDs (aus dem Quellcode):
+>
+> | Quelle | Radarr `SourceSpecification` | Sonarr `SourceSpecification` |
+> |---|---|---|
+> | Blu-ray | `9` | `6` |
+> | WEB-DL | `7` | `3` |
+> | WEBRip | `8` | `4` |
+> | HDTV | `6` (TV) | `1` |
+> | Remux | Modifier `5` (`QualityModifierSpecification`) | BlurayRaw = `7` (als Source) |
+
+### CF 10 (Radarr): Remux-2160p
+
+```json
+{
+  "name": "Remux-2160p",
+  "includeCustomFormatWhenRenaming": false,
+  "specifications": [
+    {
+      "name": "2160p",
+      "implementation": "ResolutionSpecification",
+      "negate": false,
+      "required": true,
+      "fields": {
+        "value": 2160
+      }
+    },
+    {
+      "name": "Remux",
+      "implementation": "QualityModifierSpecification",
+      "negate": false,
+      "required": true,
+      "fields": {
+        "value": 5
+      }
+    }
+  ]
+}
+```
+
+### CF 10 (Sonarr): Remux-2160p
+
+```json
+{
+  "name": "Remux-2160p",
+  "includeCustomFormatWhenRenaming": false,
+  "specifications": [
+    {
+      "name": "2160p",
+      "implementation": "ResolutionSpecification",
+      "negate": false,
+      "required": true,
+      "fields": {
+        "value": 2160
+      }
+    },
+    {
+      "name": "BlurayRaw",
+      "implementation": "SourceSpecification",
+      "negate": false,
+      "required": true,
+      "fields": {
+        "value": 7
+      }
+    }
+  ]
+}
+```
+
+### CF 11 (Radarr): Bluray-2160p
+
+```json
+{
+  "name": "Bluray-2160p",
+  "includeCustomFormatWhenRenaming": false,
+  "specifications": [
+    {
+      "name": "2160p",
+      "implementation": "ResolutionSpecification",
+      "negate": false,
+      "required": true,
+      "fields": {
+        "value": 2160
+      }
+    },
+    {
+      "name": "Bluray",
+      "implementation": "SourceSpecification",
+      "negate": false,
+      "required": true,
+      "fields": {
+        "value": 9
+      }
+    },
+    {
+      "name": "Not Remux",
+      "implementation": "QualityModifierSpecification",
+      "negate": true,
+      "required": true,
+      "fields": {
+        "value": 5
+      }
+    }
+  ]
+}
+```
+
+### CF 11 (Sonarr): Bluray-2160p
+
+```json
+{
+  "name": "Bluray-2160p",
+  "includeCustomFormatWhenRenaming": false,
+  "specifications": [
+    {
+      "name": "2160p",
+      "implementation": "ResolutionSpecification",
+      "negate": false,
+      "required": true,
+      "fields": {
+        "value": 2160
+      }
+    },
+    {
+      "name": "Bluray",
+      "implementation": "SourceSpecification",
+      "negate": false,
+      "required": true,
+      "fields": {
+        "value": 6
+      }
+    }
+  ]
+}
+```
+
+### CF 12 (Radarr): WEBDL-2160p
+
+```json
+{
+  "name": "WEBDL-2160p",
+  "includeCustomFormatWhenRenaming": false,
+  "specifications": [
+    {
+      "name": "2160p",
+      "implementation": "ResolutionSpecification",
+      "negate": false,
+      "required": true,
+      "fields": {
+        "value": 2160
+      }
+    },
+    {
+      "name": "WEBDL",
+      "implementation": "SourceSpecification",
+      "negate": false,
+      "required": true,
+      "fields": {
+        "value": 7
+      }
+    }
+  ]
+}
+```
+
+### CF 12 (Sonarr): WEBDL-2160p
+
+```json
+{
+  "name": "WEBDL-2160p",
+  "includeCustomFormatWhenRenaming": false,
+  "specifications": [
+    {
+      "name": "2160p",
+      "implementation": "ResolutionSpecification",
+      "negate": false,
+      "required": true,
+      "fields": {
+        "value": 2160
+      }
+    },
+    {
+      "name": "WEBDL",
+      "implementation": "SourceSpecification",
+      "negate": false,
+      "required": true,
+      "fields": {
+        "value": 3
+      }
+    }
+  ]
+}
+```
+
+---
+
+## 8. Quality Profile: German DL — 4K
 
 **Radarr/Sonarr:** `Settings → Quality Profiles → + (Add Profile)`
 
-### 5.1 Basis-Einstellungen
+### 8.1 Basis-Einstellungen
 
 | Feld | Wert |
 |---|---|
-| **Name** | `German DL - 1080p` (oder nach Wunsch) |
+| **Name** | `German DL - 4K` |
 | **Language** | `Any` |
 | **Upgrades Allowed** | ✓ aktiviert |
-| **Upgrade Until** | Höchste gewünschte Qualität (z. B. `Remux-1080p`) |
-| **Upgrade Until Custom Format Score** | `50000` |
+| **Upgrade Until** | `Remux-2160p` |
+| **Upgrade Until Custom Format Score** | `60000` |
 | **Minimum Custom Format Score** | `0` |
 
-### 5.2 Qualities zusammenführen (Merge)
+> **Warum 60000 statt PCJones' 50000?** Mit 50000 stoppt das Upgrade sobald
+> irgendein German-DL-Release da ist (25000 + 25000 = 50000). Mit 60000 wird
+> innerhalb der DL-Releases weiter auf besseres Bild (Remux, DV/HDR)
+> geupgradet — der maximale realistische Score liegt bei ≈ 57600.
+
+### 8.2 Qualities zusammenführen (Merge)
 
 Qualitäten müssen zusammengefasst werden, damit Radarr/Sonarr
 innerhalb der Gruppe nach dem **höchsten Custom Format Score** auswählt
-— nicht nach der Qualitätsstufe. Sonst würde ein schlechteres
-Dual-Language-Release nie ein besseres Single-Language-Release ersetzen.
+— nicht nach der Qualitätsstufe. Sonst schlägt Qualität immer Sprache.
 
 **So geht's:**
 1. Im Quality Profile auf die **Drag-Handles** (≡) klicken und Qualitäten
    übereinander ziehen, bis sie in **einer Gruppe** zusammengefasst sind.
 2. Oder: den Pfeil „▸" neben der Gruppe anklicken → „Edit Group"
 
-**Empfohlene Gruppen:**
+**Empfohlene 4K-Gruppe (alle in EINER Gruppe zusammenführen):**
 
 ```
-Gruppe 1 (höchste Priorität):
-  └─ Remux-1080p
+Gruppe „4K German DL" (✓ aktiviert):
+  ├─ Remux-2160p
+  ├─ Bluray-2160p
+  ├─ WEBDL-2160p
+  └─ WEBRip-2160p
 
-Gruppe 2:
-  ├─ Bluray-1080p
-  ├─ WEBRip-1080p
-  └─ WEBDL-1080p
-
-Gruppe 3:
-  ├─ Bluray-720p
-  ├─ WEBRip-720p
-  └─ WEBDL-720p
+NICHT aktivieren:
+  ✗ HDTV-2160p (schlechte Encodes)
+  ✗ alle 1080p/720p-Qualitäten (gehören ins 1080p-Profil)
 ```
 
-> Alle aktivierten Qualitäten mit ✓ markieren.
-> Nicht gewünschte Qualitäten (z. B. HDTV) deaktiviert lassen.
+> **Alles in eine Gruppe!** Das ist der häufigste Fehler: sind Remux und WEB-DL
+> in getrennten Gruppen, gewinnt immer die höhere Gruppe — auch wenn sie nur
+> Englisch ist. Die Score-Steuerung funktioniert nur innerhalb **einer** Gruppe.
 
 ---
 
-## 6. Custom Format Scoring
+## 9. Custom Format Scoring — Übersicht
 
 Nach dem Anlegen des Quality Profiles → Custom Formats mit Scores versehen.
 
-**Radarr/Sonarr:** `Settings → Quality Profiles → [Profil auswählen] → Custom Formats`
+**Radarr/Sonarr:** `Settings → Quality Profiles → [German DL - 4K] → Custom Formats`
 
-### 6.1 Pflicht-Scores
+### 9.1 Alle Scores auf einen Blick
 
 | Custom Format | Score | Zweck |
 |---|---|---|
-| **German DL** | `25000` | Dual-Language bevorzugen |
-| **German DL 2** | `25000` | Dual-Language bevorzugen (Metadaten-basiert) |
+| **German DL** | `25000` | Dual-Language bevorzugen (Titel) |
+| **German DL 2** | `25000` | Dual-Language bevorzugen (Metadaten) |
+| **Language: German Only** | `15000` | Fallback Deutsch *(nur bei Option A)* |
+| **Language: English Only** | `15000` | Fallback Englisch *(nur bei Option B)* |
 | **Language: Not ENG/GER** | `-30000` | Andere Sprachen blockieren |
-| **Language: German Only** | `15000` | Fallback Deutsch (nur CF 4a importiert) |
-| **Language: English Only** | `15000` | Fallback Englisch (nur CF 4b importiert) |
-| **MIC Dubbed** | `-35000` | Mic-Dubs blockieren |
+| **MIC Dubbed** | `-35000` | Mic-/Line-Dubs blockieren |
+| **Remux-2160p** | `6000` | Beste 4K-Quelle |
+| **Bluray-2160p** | `4000` | Bluray-Encode |
+| **WEBDL-2160p** | `2000` | WEB-Download |
+| **HDR** | `500` | Jede Form von HDR bevorzugen |
+| **DV Boost** | `1000` | Dolby Vision zusätzlich bevorzugen |
+| **HDR10+ Boost** | `100` | HDR10+ leicht bevorzugen |
+| **DV (w/o HDR10 fallback)** | `-10000` | Inkompatible DV-only-Releases abwerten |
 
-### 6.2 Qualitäts-Scores *(optional, für Upgrades innerhalb Dual-Language)*
-
-Damit Radarr/Sonarr ein besseres Dual-Language-Release bevorzugt,
-wenn mehrere vorhanden sind:
-
-| Custom Format | Score | Zweck |
-|---|---|---|
-| **Remux-1080p** | `6000` | Beste 1080p-Quelle bevorzugen |
-| **Bluray-1080p** | `4000` | Bluray bevorzugen |
-| **WEBDL-1080p** | `2000` | WEB-Quelle |
-| **Bluray-720p** | `0` | Basis-Fallback |
-
-> Diese Custom Formats müssen separat angelegt werden (je eigener CF mit
-> Source + Resolution als Specification). Radarr und Sonarr haben
-> unterschiedliche interne Quell-IDs — die Spezifikationen daher
-> **getrennt für beide Apps anlegen**.
-
-### 6.3 Scores visualisiert
+### 9.2 Scores visualisiert
 
 ```
-Dual Language 1080p Remux:   25000 + 25000 + 6000 = 56000  ✓ Ideal
-Dual Language 1080p Bluray:  25000 + 25000 + 4000 = 54000  ✓ Sehr gut
-Dual Language 1080p WEB:     25000 + 25000 + 2000 = 52000  ✓ Gut
-Dual Language 720p:          25000 + 25000 +    0 = 50000  ✓ OK
+German DL 2160p Remux, DV+HDR10:
+  25000 + 25000 + 6000 + 500 + 1000       = 57.500  ✓ Ideal
 
-Deutsch Only 1080p:               0 +     0 + 4000 + 15000 = 19000  ~ Fallback
-Englisch Only 1080p:              0 +     0 + 4000 + 15000 = 19000  ~ Fallback
+German DL 2160p Remux, HDR10:
+  25000 + 25000 + 6000 + 500              = 56.500  ✓ Sehr gut
 
-Andere Sprache:                                             = -30000  ✗ Geblockt
-Mic Dubbed:                                                = -35000  ✗ Geblockt
+German DL 2160p WEB-DL, HDR10+:
+  25000 + 25000 + 2000 + 500 + 100        = 52.600  ✓ Gut
+
+German DL 2160p WEB-DL, SDR:
+  25000 + 25000 + 2000                    = 52.000  ✓ Akzeptabel
+
+German DL 2160p WEB-DL, DV ohne Fallback:
+  25000 + 25000 + 2000 + 1000 - 10000     = 43.000  ~ abgewertet
+
+Deutsch Only 2160p Remux, HDR:
+  15000 + 6000 + 500                      = 21.500  ~ Fallback
+
+Andere Sprache:                            = -30.000  ✗ Geblockt
+Mic Dubbed:                                = -35.000  ✗ Geblockt
 ```
 
 ---
 
-## 7. Sonarr — Besonderheiten
+## 10. Sonarr — Besonderheiten
 
-Sonarr v4 verhält sich weitgehend identisch zu Radarr. Folgende Unterschiede beachten:
-
-### 7.1 Version prüfen
+### 10.1 Version prüfen
 
 `System → About` → Version muss **4.x** sein.
 Version 3 unterstützt die benötigten Sprachspezifikationen nicht.
 
-### 7.2 Series Type
+### 10.2 Series Type
 
 Bei Serien die **Anime** sind:
 - `Series Type: Anime` setzen (in der Serie → Edit)
-- Separate Quality Profile mit Anime-spezifischen Custom Formats empfehlenswert
+- Separates Quality Profile mit Anime-spezifischen Custom Formats empfehlenswert
 
-### 7.3 Season Packs bevorzugen
+### 10.3 Season Packs bevorzugen
 
 Für deutsche Releases gibt es oft Season Packs mit Dual-Language.
-Kein separates Custom Format nötig — Sonarr bevorzugt Season Packs automatisch,
-wenn `Settings → Indexers → Season Pack Preference` auf `Prefer Season Packs` steht.
+`Settings → Indexers → Season Pack Preference: Prefer Season Packs`
 
-### 7.4 Unterschied: Qualitäts-Custom-Formats
+### 10.4 Eigene Quality-CFs für Sonarr
 
-Die Quell-IDs in Sonarr unterscheiden sich von Radarr:
+Die Quell-IDs unterscheiden sich von Radarr (→ Tabelle in [Schritt 7](#7-custom-formats--qualität-2160p)).
+Die Sonarr-Varianten der Quality-CFs verwenden — nicht die Radarr-JSONs kopieren!
 
-| Quelle | Radarr ID | Sonarr ID |
-|---|---|---|
-| Blu-ray | `9` | `7` |
-| WEB-DL | `7` | `3` |
-| WEBRip | `8` | `15` |
-| HDTV | — | `4` |
+### 10.5 4K-Serien — Verfügbarkeit
 
-→ Qualitäts-Custom-Formats (Remux-1080p etc.) müssen für Sonarr
-mit den richtigen IDs **neu angelegt** werden.
+4K-Serien sind seltener als 4K-Filme, besonders als German DL.
+Beliebte Serien gibt es meist in 4K DL, viele andere nur auf Englisch.
+
+→ Fallback-Strategie ist bei Serien besonders wichtig (→ [Schritt 11](#11-fallback-strategie-wählen)).
 
 ---
 
-## 8. Fallback-Strategie wählen
+## 11. Fallback-Strategie wählen
 
 Wenn kein Dual-Language-Release existiert, greift der Fallback.
 **Nur eines** der folgenden CFs importieren und mit Score `15000` versehen:
@@ -462,105 +880,200 @@ Wenn kein Dual-Language-Release existiert, greift der Fallback.
 `Language: German Only` importieren und mit `15000` scoren.
 
 ```
-Priorität: German DL → Deutsch → (Englisch/Andere geblockt)
+Priorität: German DL (4K HDR) → German DL (4K) → Deutsch Only (4K) → Rest geblockt
 ```
 
-Sinnvoll wenn: Synchronisation bevorzugt, nicht alle Titel haben DL-Release.
+Sinnvoll wenn: Synchronfassung bevorzugt wird.
 
-### Option B: Fallback auf Englisch *(empfohlen für Originaltreue)*
+### Option B: Fallback auf Englisch *(empfohlen für Originalton)*
 
 `Language: English Only` importieren und mit `15000` scoren.
 
 ```
-Priorität: German DL → Englisch → (Deutsch/Andere geblockt)
+Priorität: German DL (4K HDR) → German DL (4K) → Englisch Only (4K) → Rest geblockt
 ```
-
-Sinnvoll wenn: Originalton bevorzugt, nur Dual-Language als Kompromiss.
 
 ### Option C: Kein Fallback
 
-Weder CF 4a noch CF 4b importieren.
+Weder CF 4a noch CF 4b importieren — nur German DL wird geladen.
 
-```
-Priorität: German DL → (alles andere geblockt durch -30000)
-```
-
-Sinnvoll wenn: **Nur** Dual-Language-Releases gewünscht werden,
-alles andere soll gar nicht erst heruntergeladen werden.
+> **4K-Tipp:** Bei 4K ist ein Fallback dringend empfohlen — das Angebot an
+> deutschen 4K-DL-Releases ist deutlich kleiner als bei 1080p.
 
 ---
 
-## 9. Testen & Verifizieren
+## 12. Zwei Profile vs. zwei Instanzen
 
-### 9.1 Custom Format-Erkennung prüfen
+### Option A: Getrennte Profile (empfohlen)
 
-In Radarr/Sonarr einen Film/eine Serie manuell suchen:
+`German DL - 4K` und `German DL - 1080p` in **derselben** Radarr/Sonarr-Instanz.
+Beim Hinzufügen eines Films wählst du Profil + Root Folder:
 
-1. Film öffnen → **Manual Search** (Lupe-Icon oben rechts)
-2. In der Ergebnisliste auf ein Release klicken → **Custom Formats** Spalte prüfen
-3. Ein German-DL-Release sollte `German DL` und/oder `German DL 2` zeigen
+| Profil | Root Folder | Qualities |
+|---|---|---|
+| `German DL - 4K` | `/data/media/movies-4k` | nur 2160p |
+| `German DL - 1080p` | `/data/media/movies` | nur 1080p/720p |
 
-### 9.2 Score-Summe prüfen
+**Vorteil:** Einfach, ein Radarr reicht.
+**Nachteil:** Ein Film ist entweder 4K **oder** 1080p — nicht beides.
 
-In der Manual-Search-Ansicht zeigt die Spalte **„CF Score"** den Gesamtscore.
-Ein German-DL-Release sollte ≥ 50000 zeigen.
+### Option B: Zwei Radarr-Instanzen
 
-### 9.3 Radarr — Interactive Search
+Ein Radarr für 1080p, ein zweites für 4K — derselbe Film kann in beiden
+Versionen existieren (Jellyfin zeigt dann beide Versionen an).
 
-`Movies → [Film] → Interactive Search`
+**Vorteil:** 4K für den TV **und** 1080p für unterwegs.
+**Nachteil:** Doppelte Konfiguration, doppelter RAM.
 
-Sortierung nach „CF Score" absteigend → Dual-Language-Releases sollten
-ganz oben stehen.
-
-### 9.4 Bekannte Test-Releases
-
-Folgende Suchbegriffe im Manual Search eingeben um DL-Releases zu sehen:
-- `German.DL.1080p`
-- `[DE+EN]`
-- `ger,eng`
+> **Empfehlung:** Starte mit **Option A**. Zwei Instanzen lohnen sich erst,
+> wenn du wirklich beide Versionen desselben Films brauchst.
 
 ---
 
-## 10. Troubleshooting
+## 13. Jellyfin — 4K & HDR-Wiedergabe
 
-### Kein DL-Release wird gefunden
+### 13.1 Hardware-Transcoding aktivieren
 
-1. **Prowlarr prüfen:** `Indexers → Test All` — alle Indexer erreichbar?
-2. **Suchbegriff prüfen:** Sind Indexer mit deutschen Releases konfiguriert?
-3. **Qualitätsfilter:** Ist die Qualität im Profil aktiviert und `✓` gesetzt?
-4. **Score-Cutoff:** `Minimum Custom Format Score` zu hoch? → auf `0` setzen
+Für 4K ist Hardware-Transcoding praktisch Pflicht — Software-Transcoding
+von 4K HDR schafft kaum eine CPU in Echtzeit.
 
-### DL-Release wird heruntergeladen, aber kein Upgrade
+**Intel QuickSync (empfohlen für Unraid):**
 
-- `Upgrades Allowed` im Profil aktiviert?
-- `Upgrade Until Custom Format Score` auf `50000` gesetzt?
-- Vorhandene Datei hat bereits höheren Score als das neue Release?
+In `docker-compose.yml` beim Jellyfin-Service die auskommentierten Zeilen aktivieren:
+
+```yaml
+jellyfin:
+  ...
+  devices:
+    - /dev/dri:/dev/dri
+```
+
+Dann in Jellyfin: `Admin → Playback → Transcoding`
+- Hardware acceleration: **Intel QuickSync (QSV)**
+- Enable hardware decoding für: H.264, HEVC, HEVC 10bit, VP9, AV1 (je nach CPU-Generation)
+
+**Nvidia GPU:**
+
+```yaml
+jellyfin:
+  ...
+  runtime: nvidia
+  environment:
+    - NVIDIA_VISIBLE_DEVICES=all
+```
+
+Hardware acceleration: **NVIDIA NVENC**
+
+### 13.2 Tone-Mapping für HDR → SDR
+
+Wenn ein Client kein HDR kann, muss Jellyfin HDR zu SDR konvertieren —
+sonst sieht das Bild ausgewaschen/grau aus.
+
+`Admin → Playback → Transcoding`:
+- ✓ **Enable Tone-Mapping**
+- ✓ **Enable VPP Tone-Mapping** (nur Intel — schneller als OpenCL)
+
+### 13.3 Direct Play (das Ziel)
+
+Am besten: gar nicht transkodieren. Wenn der Client 4K + HEVC + HDR direkt
+abspielen kann, gibt es keinen Qualitätsverlust und keine Serverlast.
+
+**Clients mit gutem 4K/HDR Direct Play:**
+- Nvidia Shield Pro (auch DV)
+- Apple TV 4K (auch DV)
+- Moderne 4K-TVs mit nativer Jellyfin-App
+- Fire TV Stick 4K / 4K Max (HDR10+, teils DV)
+
+**Netzwerk:** 4K Remux braucht 80–120 Mbit/s → Gigabit-LAN oder WiFi 6.
+
+### 13.4 Untertitel und Transcoding
+
+PGS-Untertitel (Blu-ray-Bitmaps) erzwingen **immer** Video-Transcoding.
+SRT/ASS-Untertitel laufen ohne Transcoding.
+
+→ Bazarr lädt automatisch SRT-Untertitel — die bevorzugt aktivieren.
+
+---
+
+## 14. Testen & Verifizieren
+
+### 14.1 Custom Format-Erkennung prüfen
+
+1. Film öffnen → **Interactive Search** (Lupe-Icon)
+2. In der Ergebnisliste die **Custom Formats**-Spalte prüfen
+3. Ein 4K-German-DL-Release sollte zeigen: `German DL`, `HDR`, ggf. `DV Boost`, `Remux-2160p`
+
+### 14.2 Score-Summe prüfen
+
+Die Spalte **„CF Score"** zeigt den Gesamtscore.
+Ein German-DL-Release mit 4K + HDR sollte **≥ 52000** zeigen.
+
+### 14.3 HDR-Erkennung testen
+
+Suche einen bekannten 4K-HDR-Film (z. B. „Dune", „Oppenheimer") und prüfe:
+- Wird `HDR` als Custom Format erkannt?
+- Bekommt ein DV-Release zusätzlich `DV Boost`?
+- Ist der Score höher als beim SDR-Release desselben Films?
+
+### 14.4 Typische 4K-DL-Release-Namen
+
+So sehen korrekte Treffer aus:
+```
+Film.Titel.2024.German.DL.2160p.UHD.BluRay.HDR.HEVC.Remux-GROUP
+Film.Titel.2024.German.DL.2160p.WEB.DV.HDR.DDP5.1.H265-GROUP
+Serie.S01E01.German.DL.2160p.WEB.H265-GROUP
+```
+
+---
+
+## 15. Troubleshooting
+
+### Keine 4K-Releases gefunden
+
+1. **Indexer prüfen:** Nicht alle Indexer führen 4K — Indexer-Suche direkt in Prowlarr testen
+2. **Qualitätsfilter:** Sind die 2160p-Qualitäten im Profil aktiviert (✓)?
+3. **Angebot:** Deutsche 4K-DL-Releases sind rar — Fallback aktivieren (→ Schritt 11)
+
+### HDR wird nicht erkannt
+
+1. **Release-Name prüfen:** Steht „HDR", „DV", „DoVi" im Titel? Nur Titel-Matching ist zuverlässig
+2. **Regex testen:** [regex101.com](https://regex101.com) mit dem Release-Namen füttern
+
+### 4K-Datei wird transkodiert statt Direct Play
+
+1. **Client:** Unterstützt er HEVC + HDR? (ältere Geräte oft nicht)
+2. **Untertitel:** PGS-Subs erzwingen Transcoding → SRT verwenden
+3. **Bitrate-Limit:** Jellyfin → Playback → Streaming → Limit erhöhen (200 Mbit/s)
+4. **Netzwerk:** WiFi 5 ist oft zu langsam für 4K Remux → LAN nutzen
 
 ### Endlos-Download-Loop
 
-Passiert wenn zwei Releases ständig gegeneinander tauschen.
-Ursache: Scores sind so konfiguriert, dass Release A > B > A > B ...
+Zwei Releases tauschen sich ständig gegenseitig aus.
 
-Lösung:
-1. `Settings → Media Management → File Management → Propers and Repacks: Do Not Prefer` prüfen
-2. `German DL` und `German DL 2` haben **exakt** denselben Score (beide 25000)
-3. Qualitäts-CFs prüfen: keine gegenseitige Überschneidung
+1. `Propers and Repacks: Do Not Prefer` gesetzt? (→ Schritt 4.1)
+2. `German DL` und `German DL 2` haben **exakt** denselben Score (25000)?
+3. `Upgrade Until Custom Format Score` erreicht? → auf 60000 prüfen
 
-### Deutsche Sprache wird nicht erkannt (Sonarr)
+### Sprache wird nicht erkannt (Sonarr)
 
-- Sonarr v4? (`System → About`)
-- `LanguageSpecification` mit `value: 4` für Deutsch korrekt?
-- Indexer liefert Sprachmetadaten? (nicht alle Indexer melden Sprache)
+- Sonarr **v4**? (`System → About`)
+- `LanguageSpecification` mit `value: 4` für Deutsch?
+- Nicht alle Indexer melden Sprachmetadaten
   → `German DL` (Titel-Regex) ist zuverlässiger als `German DL 2` (Metadaten)
+
+### 4K braucht zu viel Speicher
+
+- Remux-2160p aus dem Profil nehmen → WEB-DL (15–25 GB) statt Remux (50–80 GB)
+- Oder Score tauschen: `WEBDL-2160p: 6000`, `Remux-2160p: 0`
 
 ### Umlaute / Titel-Matching-Probleme
 
 Deutsche Titel mit Umlauten (ä, ö, ü) werden von Indexern manchmal
 als `ae`, `oe`, `ue` oder weggelassen gemeldet.
 
-Lösung: **UmlautAdaptarr** als Middleware zwischen Prowlarr und Radarr/Sonarr.
+Lösung: **UmlautAdaptarr** (aktiv gepflegt, offiziell von TRaSH empfohlen):
 - GitHub: [PCJones/UmlautAdaptarr](https://github.com/PCJones/UmlautAdaptarr)
-- Docker-Container der zwischen Prowlarr und den Arr-Apps sitzt
+- Docker-Container zwischen Prowlarr und den Arr-Apps
 - Mappt Umlaute automatisch für korrekte Titel-Matches
 
 ---
@@ -570,24 +1083,35 @@ Lösung: **UmlautAdaptarr** als Middleware zwischen Prowlarr und Radarr/Sonarr.
 ```
 Schritt 1: Settings → Media Management → Propers and Repacks: Do Not Prefer
 
-Schritt 2: Custom Formats importieren (JSON oben):
-  ✓ German DL
-  ✓ German DL 2
-  ✓ Language: Not ENG/GER
-  ✓ Language: German Only  ODER  Language: English Only
-  ✓ MIC Dubbed  (optional)
+Schritt 2: 4K-Ordner anlegen + als Root Folder eintragen:
+  /data/media/movies-4k   (Radarr)
+  /data/media/tv-4k       (Sonarr)
 
-Schritt 3: Quality Profile anlegen:
-  Language:   Any
-  Upgrade Until CF Score:  50000
-  Qualities zusammenführen (Merge)
+Schritt 3: Custom Formats importieren (JSONs oben):
+  Sprache:
+    ✓ German DL                        Score:  25000
+    ✓ German DL 2                      Score:  25000
+    ✓ Language: Not ENG/GER            Score: -30000
+    ✓ German Only ODER English Only    Score:  15000
+    ✓ MIC Dubbed                       Score: -35000
+  HDR:
+    ✓ HDR                              Score:    500
+    ✓ DV Boost                         Score:   1000
+    ✓ HDR10+ Boost                     Score:    100
+    ✓ DV (w/o HDR10 fallback)          Score: -10000
+  Qualität (Radarr- und Sonarr-Variante beachten!):
+    ✓ Remux-2160p                      Score:   6000
+    ✓ Bluray-2160p                     Score:   4000
+    ✓ WEBDL-2160p                      Score:   2000
 
-Schritt 4: Custom Format Scores setzen:
-  German DL:            25000
-  German DL 2:          25000
-  Language: Not ENG/GER: -30000
-  German/English Only:  15000
-  MIC Dubbed:           -35000
+Schritt 4: Quality Profile "German DL - 4K":
+  Language:                Any
+  Upgrade Until:           Remux-2160p
+  Upgrade Until CF Score:  60000
+  Nur 2160p-Qualitäten — ALLE in EINER Gruppe zusammenführen!
 
-Schritt 5: Testen via Manual Search
+Schritt 5: Jellyfin → Hardware-Transcoding + Tone-Mapping aktivieren
+           Separate 4K-Bibliotheken anlegen
+
+Schritt 6: Interactive Search — German DL + 4K + HDR = Score ≥ 52000
 ```

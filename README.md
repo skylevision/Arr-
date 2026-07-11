@@ -8,8 +8,8 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 > **Stack über die Unraid-Oberfläche einrichten?** → [Unraid UI Setup](UNRAID_UI_SETUP.md) —
 > Jeden Container Schritt für Schritt über das Unraid Web-Interface anlegen (ohne Docker Compose).
 
-> **Dual Language (DE+EN)?** → [Dual Language Setup](DUAL_LANGUAGE_SETUP.md) —
-> Custom Formats und Quality Profiles für automatische German-DL-Downloads.
+> **Dual Language (DE+EN) in 4K?** → [Dual Language Setup](DUAL_LANGUAGE_SETUP.md) —
+> Custom Formats und Quality Profiles für automatische German-DL-Downloads in 4K mit HDR/Dolby Vision.
 
 > **Freunde & Familie einladen?** → [Freunde-Anleitung](FREUNDE_ANLEITUNG.md) —
 > Tailscale-Verbindung, Jellyfin & Seerr einrichten auf Smartphone, PC und Fire TV Stick.
@@ -99,7 +99,9 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
     │       └── complete/
     └── media/
         ├── movies/
+        ├── movies-4k/
         ├── tv/
+        ├── tv-4k/
         ├── music/
         └── books/
 ```
