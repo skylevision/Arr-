@@ -1,0 +1,14 @@
+# Secrets & lokale Konfiguration — niemals committen
+.env
+.env.runtime
+env.backup
+
+# Backups
+backups/
+
+# Recyclarr-Cache (wird zur Laufzeit erzeugt)
+recyclarr/cache/
+
+# Editor/OS
+.DS_Store
+Thumbs.db
