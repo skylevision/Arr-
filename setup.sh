@@ -91,6 +91,7 @@ info "Creating data directories under ${DATA} ..."
 DATA_DIRS=(
   media/movies
   media/tv
+  media/anime
   downloads/usenet/incomplete
   downloads/usenet/complete/movies
   downloads/usenet/complete/tv

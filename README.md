@@ -104,7 +104,8 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
     │           └── tv/       ← SABnzbd category "tv"
     └── media/
         ├── movies/           ← Radarr root folder
-        └── tv/               ← Sonarr root folder
+        ├── tv/               ← Sonarr root folder
+        └── anime/            ← Sonarr anime root folder ([German] Anime profile)
 ```
 
 > **Why a single `/data` share?**

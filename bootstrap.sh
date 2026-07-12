@@ -70,7 +70,7 @@ success "appdata: ${APPDATA}"
 
 # TRaSH-Layout: ein gemeinsames /data für Downloads + Medien
 DATA_DIRS=(
-  media/movies media/tv
+  media/movies media/tv media/anime
   downloads/usenet/incomplete
   downloads/usenet/complete/movies
   downloads/usenet/complete/tv
@@ -82,6 +82,7 @@ done
 # damit der Lauf auch bei großen Bibliotheken schnell bleibt)
 chown "${PUID}:${PGID}" "${DATA}" "${DATA}/media" "${DATA}/downloads" \
   "${DATA}/downloads/usenet" "${DATA}/media/movies" "${DATA}/media/tv" \
+  "${DATA}/media/anime" \
   "${DATA}/downloads/usenet/incomplete" "${DATA}/downloads/usenet/complete" \
   "${DATA}/downloads/usenet/complete/movies" "${DATA}/downloads/usenet/complete/tv"
 success "data:    ${DATA}"

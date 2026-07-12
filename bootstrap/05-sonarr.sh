@@ -14,13 +14,14 @@ sapi() { arr_api "$1" "$S" "$SONARR_API_KEY" "$2" "${3:-}"; }
 # ---------------------------------------------------------------------------
 # Root Folder
 # ---------------------------------------------------------------------------
-ROOT="/data/media/tv"
-if ! sapi GET /rootfolder | jq -e --arg p "$ROOT" '.[] | select(.path==$p)' >/dev/null; then
-  sapi POST /rootfolder "{\"path\":\"${ROOT}\"}" >/dev/null
-  success "Root Folder ${ROOT} angelegt."
-else
-  success "Root Folder ${ROOT} vorhanden."
-fi
+for ROOT in /data/media/tv /data/media/anime; do
+  if ! sapi GET /rootfolder | jq -e --arg p "$ROOT" '.[] | select(.path==$p)' >/dev/null; then
+    sapi POST /rootfolder "{\"path\":\"${ROOT}\"}" >/dev/null
+    success "Root Folder ${ROOT} angelegt."
+  else
+    success "Root Folder ${ROOT} vorhanden."
+  fi
+done
 
 # ---------------------------------------------------------------------------
 # Download Client: SABnzbd
