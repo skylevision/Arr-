@@ -54,8 +54,9 @@ info "Lege Verzeichnisse an (idempotent) ..."
 APPDATA_DIRS=(
   tailscale sabnzbd prowlarr radarr sonarr bazarr seerr
   jellyfin/config jellyfin/cache homepage
+  adguardhome/work adguardhome/conf
   # Für deaktivierte Profile vorbereitet:
-  vaultwarden threadfin/conf threadfin/temp adguardhome/work adguardhome/conf
+  vaultwarden threadfin/conf threadfin/temp gluetun
   lidarr readarr
 )
 for dir in "${APPDATA_DIRS[@]}"; do

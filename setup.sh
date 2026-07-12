@@ -66,6 +66,7 @@ APPDATA_DIRS=(
   vaultwarden
   threadfin/conf
   threadfin/temp
+  gluetun
   adguardhome/work
   adguardhome/conf
   jellyfin/config

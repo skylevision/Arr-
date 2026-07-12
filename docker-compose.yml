@@ -84,6 +84,9 @@ volumes:
   threadfin_temp:
     driver: local
     driver_opts: { type: none, o: bind, device: "${APPDATA}/threadfin/temp" }
+  gluetun_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/gluetun" }
   adguard_work:
     driver: local
     driver_opts: { type: none, o: bind, device: "${APPDATA}/adguardhome/work" }
@@ -391,19 +394,64 @@ services:
   # THREADFIN — deaktiviert (--profile iptv), Einrichtung folgt später
   # Kein verlässliches Versions-Tag im Docker Hub → Pin per Digest.
   # ==========================================================================
+  # gluetun = VPN-Gateway NUR für Threadfin (Split-Tunnel). Threadfin teilt
+  # sich unten den Netzwerk-Stack (network_mode: service:gluetun) → sämtlicher
+  # Live-TV-Traffic läuft durch Premiumize, der restliche Stack bleibt direkt.
+  # Killswitch: fällt das VPN aus, hat Threadfin keine Verbindung (kein Leak).
+  #
+  # Voraussetzung: OpenVPN-Config von premiumize.me/plugins als
+  # ${APPDATA}/gluetun/premiumize.ovpn ablegen; Zugang in .env (PREMIUMIZE_*).
+  # Der Threadfin-Port wird HIER veröffentlicht (Threadfin selbst hat keinen
+  # eigenen Netzwerk-Namen mehr → Jellyfin-Tuner-URL: http://gluetun:34400).
+  gluetun:
+    image: qmcgaw/gluetun:v3.41.1
+    container_name: gluetun
+    restart: unless-stopped
+    profiles:
+      - iptv
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - "${THREADFIN_PORT:-34400}:34400"   # Threadfin läuft in diesem Netz-Stack
+    volumes:
+      - gluetun_data:/gluetun
+    environment:
+      - TZ=${TZ:-Europe/Berlin}
+      - VPN_SERVICE_PROVIDER=custom
+      - VPN_TYPE=openvpn
+      - OPENVPN_CUSTOM_CONFIG=/gluetun/premiumize.ovpn
+      - OPENVPN_USER=${PREMIUMIZE_VPN_USER:-}
+      - OPENVPN_PASSWORD=${PREMIUMIZE_VPN_PASSWORD:-}
+      # Damit Jellyfin & Co. aus arr_net den Threadfin-Port erreichen, ohne
+      # dass diese Antworten durchs VPN müssen:
+      - FIREWALL_INPUT_PORTS=34400
+      - FIREWALL_OUTBOUND_SUBNETS=${ARR_NET_SUBNET:-172.18.0.0/16}
+    networks:
+      - arr_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- https://ipinfo.io/ip >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 40s
+
   threadfin:
     image: fyb3roptik/threadfin@sha256:863fb0c2945617b4aa48b79eaa655954df72d68fbee6e49a1465934ceb3f057e
     container_name: threadfin
     <<: *common
     profiles:
       - iptv
-    ports:
-      - "${THREADFIN_PORT:-34400}:34400"
+    # Kein eigenes networks:/ports: — Threadfin nutzt den Netz-Stack von gluetun,
+    # damit ALLER Threadfin-Traffic durchs Premiumize-VPN läuft.
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
     volumes:
       - threadfin_conf:/home/threadfin/conf
       - threadfin_temp:/tmp/threadfin:rw
-    networks:
-      - arr_net
 
   # ==========================================================================
   # LIDARR / READARR — deaktiviert; vor einer Aktivierung Version pinnen!
