@@ -23,7 +23,7 @@
 #   1. cp .env.example .env  &&  .env ausfüllen
 #   2. bash bootstrap.sh      (Ordner, Netzwerk, Start, Health-Wait, API-Config)
 # ============================================================
-# Image-Tags sind FEST GEPINNT (Stand 2026-07-11, gegen Registry
+# Image-Tags sind FEST GEPINNT (Stand 2026-07-12, gegen Registry
 # verifiziert). Update = Tag hier bumpen, committen, `docker compose up -d`.
 # ============================================================
 
@@ -113,7 +113,7 @@ services:
   # Auth: TS_AUTHKEY in .env (tskey-auth-…) oder interaktiv via docker logs.
   # ==========================================================================
   tailscale:
-    image: tailscale/tailscale:v1.94.2
+    image: tailscale/tailscale:v1.98.8
     container_name: tailscale
     hostname: ${TS_HOSTNAME:-arr-stack}
     restart: unless-stopped
@@ -145,7 +145,7 @@ services:
   # Download-Ordner (per API gesetzt): /data/downloads/usenet/{incomplete,complete}
   # ==========================================================================
   sabnzbd:
-    image: lscr.io/linuxserver/sabnzbd:4.5.5-ls247
+    image: lscr.io/linuxserver/sabnzbd:5.0.4-ls262
     container_name: sabnzbd
     <<: *common
     ports:
@@ -166,7 +166,7 @@ services:
   # PROWLARR — Indexer-Manager (Single Source of Truth, synct zu Radarr/Sonarr)
   # ==========================================================================
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:2.3.5.5327-ls141
+    image: lscr.io/linuxserver/prowlarr:2.4.0.5397-ls153
     container_name: prowlarr
     <<: *common
     ports:
@@ -186,7 +186,7 @@ services:
   # RADARR — Filme
   # ==========================================================================
   radarr:
-    image: lscr.io/linuxserver/radarr:6.1.1.10360-ls298
+    image: lscr.io/linuxserver/radarr:6.2.1.10461-ls310
     container_name: radarr
     <<: *common
     ports:
@@ -212,7 +212,7 @@ services:
   # SONARR — Serien
   # ==========================================================================
   sonarr:
-    image: lscr.io/linuxserver/sonarr:4.0.17.2952-ls306
+    image: lscr.io/linuxserver/sonarr:4.0.19.2979-ls319
     container_name: sonarr
     <<: *common
     ports:
@@ -238,7 +238,7 @@ services:
   # BAZARR — Untertitel (braucht nur die fertigen Medien, kein /downloads)
   # ==========================================================================
   bazarr:
-    image: lscr.io/linuxserver/bazarr:v1.5.6-ls342
+    image: lscr.io/linuxserver/bazarr:v1.6.0-ls354
     container_name: bazarr
     <<: *common
     ports:
@@ -264,7 +264,7 @@ services:
   # SEERR — Media-Request-Portal (läuft als interner node-User, kein PUID/PGID)
   # ==========================================================================
   seerr:
-    image: seerr/seerr:v3.1.0
+    image: seerr/seerr:v3.3.0
     container_name: seerr
     restart: unless-stopped
     environment:
@@ -293,7 +293,7 @@ services:
   # JELLYFIN — Media-Server (bringt eigenen Healthcheck im Image mit)
   # ==========================================================================
   jellyfin:
-    image: jellyfin/jellyfin:10.11.8
+    image: jellyfin/jellyfin:10.11.11
     container_name: jellyfin
     restart: unless-stopped
     user: "${PUID:-99}:${PGID:-100}"
@@ -321,7 +321,7 @@ services:
   # HOMEPAGE — Dashboard (bringt eigenen Healthcheck im Image mit)
   # ==========================================================================
   homepage:
-    image: ghcr.io/gethomepage/homepage:v1.12.3
+    image: ghcr.io/gethomepage/homepage:v1.13.2
     container_name: homepage
     restart: unless-stopped
     ports:
@@ -346,7 +346,7 @@ services:
   # bereit (http://dockerproxy:2375), damit Homepage den Container-Status
   # anzeigen kann, ohne den root-Socket direkt zu mounten.
   dockerproxy:
-    image: ghcr.io/tecnativa/docker-socket-proxy:0.3.0
+    image: ghcr.io/tecnativa/docker-socket-proxy:v0.4.2
     container_name: dockerproxy
     restart: unless-stopped
     environment:
@@ -395,7 +395,7 @@ services:
   # zeigen: Heimnetz → Netzwerk → Netzwerkeinstellungen → IPv4 → lokaler DNS.
   # ==========================================================================
   adguardhome:
-    image: adguard/adguardhome:v0.107.73
+    image: adguard/adguardhome:v0.107.77
     container_name: adguardhome
     restart: unless-stopped
     ports:
@@ -426,7 +426,7 @@ services:
   # Die Ports der Insassen werden HIER veröffentlicht (sie haben keinen eigenen
   # Netzwerk-Namen mehr → aus arr_net erreichbar als http://gluetun:<port>).
   gluetun:
-    image: qmcgaw/gluetun:v3.41.1
+    image: qmcgaw/gluetun@sha256:b0ee2135e6ba52ad3f102aae9663707cd1c9531485117067a380d3b2b6dd991d
     container_name: gluetun
     restart: unless-stopped
     profiles:
@@ -466,7 +466,7 @@ services:
   # Nutzt dasselbe /data wie Sonarr → Hardlinks von /data/downloads/torrents
   # nach /data/media. Erst-Setup + Sonarr-Verdrahtung: bootstrap/12-torrent.sh.
   qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:5.1.2
+    image: lscr.io/linuxserver/qbittorrent:5.2.3_v2.0.13-ls468
     container_name: qbittorrent
     restart: unless-stopped
     profiles:
@@ -487,7 +487,7 @@ services:
   # FlareSolverr — löst Cloudflare-Challenges für Prowlarr-Indexer (1337x,
   # XXXClub …). Kein VPN nötig; Prowlarr erreicht es als http://flaresolverr:8191.
   flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:v3.3.21
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.0
     container_name: flaresolverr
     restart: unless-stopped
     profiles:
