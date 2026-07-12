@@ -1,0 +1,5 @@
+# Shell-Skripte und YAML brauchen LF — auch bei Checkout unter Windows
+*.sh   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.md   text
