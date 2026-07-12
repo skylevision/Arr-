@@ -40,4 +40,43 @@ check_key() {
 check_key radarr "$RADARR_API_KEY"
 check_key sonarr "$SONARR_API_KEY"
 
+# ---------------------------------------------------------------------------
+# Standard-Sprachprofil sicherstellen + bestehenden Titeln zuweisen
+#
+# Ohne zugewiesenes Sprachprofil sucht Bazarr für NICHTS Untertitel — die
+# häufigste Ursache für „Bazarr lädt keine Untertitel". Das Anlegen des
+# Profils selbst (Sprachen, Cutoff) bleibt ein UI-Schritt (Provider-Login
+# nötig); ist eines vorhanden, wird es hier als Standard gesetzt und allen
+# Serien/Filmen ohne Profil zugewiesen. Idempotent.
+# ---------------------------------------------------------------------------
+bapi() { curl -fsS -m 30 -H "X-API-KEY: ${BAZARR_API_KEY}" "$@"; }
+bpost() { curl -fsS -m 30 -o /dev/null -w '%{http_code}' -X POST \
+  -H "X-API-KEY: ${BAZARR_API_KEY}" -H "Content-Type: application/x-www-form-urlencoded" "$@"; }
+
+PID="$(bapi "${B}/system/languages/profiles" | jq -r '[.[].profileId] | first // empty')"
+if [[ -z "$PID" ]]; then
+  warn "Bazarr: kein Sprachprofil vorhanden — Untertitel sind AUS."
+  warn "  Anlegen: Bazarr-UI → Settings → Languages → Profil (z. B. de+en) erstellen, dann erneut ausführen."
+else
+  SET="$(bapi "${B}/system/settings")"
+  s_def="$(echo "$SET" | jq -r '.general.serie_default_profile // ""')"
+  m_def="$(echo "$SET" | jq -r '.general.movie_default_profile // ""')"
+  if [[ "$s_def" != "$PID" || "$m_def" != "$PID" ]]; then
+    bpost "${B}/system/settings" --data "settings-general-serie_default_enabled=true&settings-general-serie_default_profile=${PID}&settings-general-movie_default_enabled=true&settings-general-movie_default_profile=${PID}" >/dev/null
+    success "Bazarr: Standard-Sprachprofil (id=${PID}) für Serien + Filme gesetzt."
+  else
+    success "Bazarr: Standard-Sprachprofil (id=${PID}) bereits gesetzt."
+  fi
+
+  # Bestehenden Serien/Filmen ohne Profil das Standardprofil zuweisen
+  n=0
+  for sid in $(bapi "${B}/series?length=-1" | jq -r '.data[] | select((.profileId // 0) == 0) | .sonarrSeriesId'); do
+    bpost "${B}/series" --data "seriesid=${sid}&profileid=${PID}" >/dev/null && n=$((n+1))
+  done
+  for rid in $(bapi "${B}/movies?length=-1" | jq -r '.data[] | select((.profileId // 0) == 0) | .radarrId'); do
+    bpost "${B}/movies" --data "radarrid=${rid}&profileid=${PID}" >/dev/null && n=$((n+1))
+  done
+  success "Bazarr: Sprachprofil ${n} Titel(n) ohne Profil zugewiesen (bereits zugewiesene unberührt)."
+fi
+
 [[ "$FAIL" == "0" ]] || warn "Bazarr-Verifikation mit Abweichungen abgeschlossen (siehe oben)."
