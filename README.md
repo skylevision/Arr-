@@ -2,6 +2,9 @@
 
 A complete, production-ready Docker Compose stack for automated movie and TV management on Unraid.
 
+> **Alle Dienste auf einen Blick?** → [Dienste-Übersicht](DIENSTE.md) —
+> Namen, IPs, Ports als klickbare Links + DNS-Einrichtung in der Fritz!Box.
+
 > **Neu bei Unraid?** → Zuerst die [Unraid Setup-Anleitung](UNRAID_SETUP.md) lesen.
 > Sie führt Schritt für Schritt durch BIOS, HDDs, NVMe-Cache, 2×2.5G-Bonding und alle Grundeinstellungen.
 
