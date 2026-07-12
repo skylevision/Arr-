@@ -6,8 +6,12 @@ env.backup
 # Backups
 backups/
 
-# Recyclarr-Cache (wird zur Laufzeit erzeugt)
+# Recyclarr-Laufzeitdaten (werden vom Container erzeugt)
 recyclarr/cache/
+recyclarr/logs/
+recyclarr/state/
+recyclarr/resources/
+recyclarr/settings.yml
 
 # Editor/OS
 .DS_Store

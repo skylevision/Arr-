@@ -79,6 +79,9 @@ for dir in "${APPDATA_DIRS[@]}"; do
   chown "${PUID}:${PGID}" "${target}"
   success "${target}"
 done
+# Seerr läuft als node (uid/gid 1000), nicht mit PUID/PGID — sonst kann
+# settings.json nicht geschrieben werden (API-PUTs hängen endlos)
+chown -R 1000:1000 "${APPDATA}/seerr"
 
 # ---------------------------------------------------------------------------
 # Create media / download directories

@@ -62,6 +62,10 @@ for dir in "${APPDATA_DIRS[@]}"; do
   mkdir -p "${APPDATA}/${dir}"
   chown "${PUID}:${PGID}" "${APPDATA}/${dir}"
 done
+# Seerr folgt nicht dem LinuxServer-PUID/PGID-Modell: der Container läuft als
+# node (uid/gid 1000). Gehört das Config-Verzeichnis 99:100, kann settings.json
+# nicht geschrieben werden — Seerr-API-PUTs hängen dann endlos.
+chown -R 1000:1000 "${APPDATA}/seerr"
 success "appdata: ${APPDATA}"
 
 # TRaSH-Layout: ein gemeinsames /data für Downloads + Medien
