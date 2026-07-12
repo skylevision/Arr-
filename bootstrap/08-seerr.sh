@@ -58,7 +58,9 @@ update_instance() {
       | del(.id)')"  # id ist laut Seerr-OpenAPI read-only und darf nicht im Body stehen
     seerr PUT "/settings/${kind}/${id}" "$updated" >/dev/null
     success "Seerr ${kind} (Instanz ${id}): Default-Profil → \"${profile_name}\", Root → ${root}."
-    [[ -n "$anime_root" ]] && success "Seerr ${kind} (Instanz ${id}): Anime-Profil → \"${ANIME_PROFILE}\", Root → ${anime_root}."
+    if [[ -n "$anime_root" ]]; then
+      success "Seerr ${kind} (Instanz ${id}): Anime-Profil → \"${ANIME_PROFILE}\", Root → ${anime_root}."
+    fi
   done
 }
 
