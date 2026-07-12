@@ -51,11 +51,15 @@ cat > "${HP}/services.yaml" <<EOF
         icon: jellyfin.png
         href: http://jellyfin.${D}:${JELLYFIN_PORT_HTTP:-8096}
         description: Filme & Serien
+        server: my-docker
+        container: jellyfin
 ${JF_ENTRY}
     - Seerr:
         icon: overseerr.png
         href: http://seerr.${D}:${SEERR_PORT:-5055}
         description: Filme & Serien wünschen
+        server: my-docker
+        container: seerr
         widget:
           type: jellyseerr
           url: http://seerr:5055
@@ -66,6 +70,8 @@ ${JF_ENTRY}
         icon: radarr.png
         href: http://radarr.${D}:${RADARR_PORT:-7878}
         description: Filme
+        server: my-docker
+        container: radarr
         widget:
           type: radarr
           url: http://radarr:7878
@@ -74,6 +80,8 @@ ${JF_ENTRY}
         icon: sonarr.png
         href: http://sonarr.${D}:${SONARR_PORT:-8989}
         description: Serien
+        server: my-docker
+        container: sonarr
         widget:
           type: sonarr
           url: http://sonarr:8989
@@ -82,6 +90,8 @@ ${JF_ENTRY}
         icon: prowlarr.png
         href: http://prowlarr.${D}:${PROWLARR_PORT:-9696}
         description: Indexer
+        server: my-docker
+        container: prowlarr
         widget:
           type: prowlarr
           url: http://prowlarr:9696
@@ -90,6 +100,8 @@ ${JF_ENTRY}
         icon: bazarr.png
         href: http://bazarr.${D}:${BAZARR_PORT:-6767}
         description: Untertitel
+        server: my-docker
+        container: bazarr
         widget:
           type: bazarr
           url: http://bazarr:6767
@@ -100,6 +112,8 @@ ${JF_ENTRY}
         icon: sabnzbd.png
         href: http://sabnzbd.${D}:${SABNZBD_PORT:-8090}
         description: Usenet
+        server: my-docker
+        container: sabnzbd
         widget:
           type: sabnzbd
           url: http://sabnzbd:8080
@@ -110,6 +124,8 @@ ${JF_ENTRY}
         icon: adguard-home.png
         href: http://adguard.${D}:${ADGUARD_WEBUI_PORT:-8081}
         description: DNS & Werbeblocker
+        server: my-docker
+        container: adguardhome
         siteMonitor: http://adguardhome:80
     - Unraid:
         icon: unraid.png
