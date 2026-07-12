@@ -28,32 +28,67 @@ CAT="sonarr"
 CAT_PATH="/data/downloads/torrents/${CAT}"
 
 # ---------------------------------------------------------------------------
-# qBittorrent: WebUI-Vorkonfiguration (Auth-Bypass für arr_net + LAN)
-# LinuxServer-qBit loggt bei jedem Start ein temporäres Passwort, solange
-# keines gesetzt ist — damit loggen wir uns einmalig ein und setzen die Prefs.
+# qBittorrent: WebUI-Vorkonfiguration direkt in qBittorrent.conf.
+# Nötig, weil qBit über den gemappten Port Auth verlangt (Quelle ≠ localhost)
+# und der API-Login damit ein Henne-Ei-Problem ist. Wir setzen einen
+# Auth-Bypass für arr_net + LAN (kein Passwort im Heimnetz) und die Save-Pfade.
+# qBit muss dafür gestoppt sein, sonst überschreibt es die Datei beim Beenden.
 # ---------------------------------------------------------------------------
-TMP_PW="$(docker logs qbittorrent 2>&1 | grep -a 'temporary password' | tail -1 | sed 's/.*: //')"
-COOKIE="$(mktemp)"; trap 'rm -f "$COOKIE"' EXIT
+QCONF="${APPDATA}/qbittorrent/qBittorrent/qBittorrent.conf"
+[[ -f "$QCONF" ]] || error "qBittorrent.conf nicht gefunden (${QCONF}) — läuft der Container schon?"
 
-if [[ -n "$TMP_PW" ]] && \
-   curl -fsS -c "$COOKIE" --data-urlencode "username=admin" --data-urlencode "password=${TMP_PW}" \
-     "${QBIT}/api/v2/auth/login" | grep -q "Ok."; then
-  PREFS="$(jq -n --arg lan "$LAN" '{
-    bypass_auth_subnet_whitelist_enabled: true,
-    bypass_auth_subnet_whitelist: ("172.16.0.0/12\n" + $lan),
-    web_ui_host_header_validation_enabled: false,
-    save_path: "/data/downloads/torrents",
-    temp_path_enabled: true,
-    temp_path: "/data/downloads/torrents/incomplete"
-  }')"
-  curl -fsS -b "$COOKIE" --data-urlencode "json=${PREFS}" "${QBIT}/api/v2/app/setPreferences" >/dev/null
-  # Kategorie anlegen (Fehler ignorieren, falls sie schon existiert)
-  curl -fsS -b "$COOKIE" --data-urlencode "category=${CAT}" --data-urlencode "savePath=${CAT_PATH}" \
+docker stop qbittorrent >/dev/null
+
+CHANGED="$(ARR_SUBNET="${ARR_NET_SUBNET:-172.18.0.0/16}" LAN="$LAN" python3 - "$QCONF" <<'PY'
+import configparser, os, sys
+p = sys.argv[1]
+cp = configparser.ConfigParser(interpolation=None)
+cp.optionxform = str  # Schlüssel case-sensitive lassen (WebUI\Port etc.)
+cp.read(p)
+want = {
+  "Preferences": {
+    r"WebUI\HostHeaderValidation": "false",
+    r"WebUI\LocalHostAuth": "false",
+    r"WebUI\AuthSubnetWhitelistEnabled": "true",
+    r"WebUI\AuthSubnetWhitelist": "172.16.0.0/12, " + os.environ["LAN"],
+    r"Downloads\SavePath": "/data/downloads/torrents/",
+    r"Downloads\TempPathEnabled": "true",
+    r"Downloads\TempPath": "/data/downloads/torrents/incomplete/",
+  },
+  "BitTorrent": {
+    r"Session\DefaultSavePath": "/data/downloads/torrents",
+    r"Session\TempPathEnabled": "true",
+    r"Session\TempPath": "/data/downloads/torrents/incomplete",
+  },
+}
+changed = False
+for sect, kv in want.items():
+    if not cp.has_section(sect):
+        cp.add_section(sect); changed = True
+    for k, v in kv.items():
+        if cp.get(sect, k, fallback=None) != v:
+            cp.set(sect, k, v); changed = True
+if changed:
+    with open(p, "w") as f:
+        cp.write(f, space_around_delimiters=False)
+print("CHANGED" if changed else "UNCHANGED")
+PY
+)"
+chown "${PUID}:${PGID}" "$QCONF"
+docker start qbittorrent >/dev/null
+info "qBittorrent-Config: ${CHANGED} — warte auf WebUI ..."
+
+# Auf WebUI warten (jetzt ohne Auth aus dem Whitelist-Subnetz erreichbar)
+for _ in $(seq 1 20); do
+  curl -fsS -m 5 "${QBIT}/api/v2/app/version" >/dev/null 2>&1 && break
+  sleep 2
+done
+if curl -fsS -m 5 "${QBIT}/api/v2/app/version" >/dev/null 2>&1; then
+  curl -fsS --data-urlencode "category=${CAT}" --data-urlencode "savePath=${CAT_PATH}" \
     "${QBIT}/api/v2/torrents/createCategory" >/dev/null 2>&1 || true
   success "qBittorrent konfiguriert (Auth-Bypass arr_net+LAN, Save-Pfade, Kategorie '${CAT}')."
 else
-  warn "qBittorrent: kein temporäres Passwort im Log (schon manuell konfiguriert?) — WebUI-Vorkonfig übersprungen."
-  warn "  Falls Sonarr sich nicht verbinden kann: in qBit → Einstellungen → WebUI → 'Authentifizierung für Clients im Whitelist-Subnetz umgehen' für ${ARR_NET_SUBNET:-172.18.0.0/16} + ${LAN} aktivieren."
+  warn "qBittorrent-WebUI nach Neustart nicht erreichbar — Logs prüfen: docker logs qbittorrent"
 fi
 
 # ---------------------------------------------------------------------------
