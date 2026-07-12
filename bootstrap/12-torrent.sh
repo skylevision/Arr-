@@ -37,11 +37,15 @@ CAT_PATH="/data/downloads/torrents/${CAT}"
 QCONF="${APPDATA}/qbittorrent/qBittorrent/qBittorrent.conf"
 [[ -f "$QCONF" ]] || error "qBittorrent.conf nicht gefunden (${QCONF}) — läuft der Container schon?"
 
+# python3 gibt es auf dem Unraid-Host nicht — wir nutzen es aus dem qBit-Image
+# (einmaliger Container mit gemountetem appdata, während qBit gestoppt ist).
+QIMAGE="$(docker inspect qbittorrent --format '{{.Config.Image}}')"
 docker stop qbittorrent >/dev/null
 
-CHANGED="$(ARR_SUBNET="${ARR_NET_SUBNET:-172.18.0.0/16}" LAN="$LAN" python3 - "$QCONF" <<'PY'
-import configparser, os, sys
-p = sys.argv[1]
+CHANGED="$(docker run --rm -i --entrypoint python3 -e LAN="$LAN" \
+  -v "${APPDATA}/qbittorrent:/config" "$QIMAGE" - <<'PY'
+import configparser, os
+p = "/config/qBittorrent/qBittorrent.conf"
 cp = configparser.ConfigParser(interpolation=None)
 cp.optionxform = str  # Schlüssel case-sensitive lassen (WebUI\Port etc.)
 cp.read(p)
