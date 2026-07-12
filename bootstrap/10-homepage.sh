@@ -25,6 +25,20 @@ HP="${APPDATA}/homepage"
 D="${LOCAL_DOMAIN:-fritz.box}"
 [[ -d "$HP" ]] || error "${HP} existiert nicht — erst bootstrap.sh laufen lassen."
 
+# Jellyfin-Widget nur, wenn ein API-Key gesetzt ist (JELLYFIN_API_KEY in .env,
+# vom Nutzer in Jellyfin → Dashboard → API-Schlüssel erzeugt). Sonst nur ein
+# Erreichbarkeits-Punkt (siteMonitor), damit die Homepage keinen Fehler zeigt.
+if [[ -n "${JELLYFIN_API_KEY:-}" ]]; then
+  JF_ENTRY="        widget:
+          type: jellyfin
+          url: http://jellyfin:8096
+          key: ${JELLYFIN_API_KEY}
+          enableBlocks: true
+          enableNowPlaying: true"
+else
+  JF_ENTRY="        siteMonitor: http://jellyfin:8096"
+fi
+
 info "Schreibe ${HP}/services.yaml (Widgets mit API-Keys, Links per DNS-Name) ..."
 
 cat > "${HP}/services.yaml" <<EOF
@@ -37,7 +51,7 @@ cat > "${HP}/services.yaml" <<EOF
         icon: jellyfin.png
         href: http://jellyfin.${D}:${JELLYFIN_PORT_HTTP:-8096}
         description: Filme & Serien
-        siteMonitor: http://jellyfin:8096
+${JF_ENTRY}
     - Seerr:
         icon: overseerr.png
         href: http://seerr.${D}:${SEERR_PORT:-5055}
