@@ -1,15 +1,16 @@
-# IPTV / Live TV — Deutsches Fernsehen in Jellyfin
+# IPTV / Live TV — Fernsehen in Jellyfin (über VPN)
 
-Anleitung zur Einrichtung von deutschem Live-TV (inkl. Sportkanäle) über **Threadfin**
-als IPTV-Proxy und Jellyfin als Abspieler — erreichbar von überall über Tailscale.
+Anleitung zur Einrichtung von Live-TV über **Threadfin** als IPTV-Proxy und Jellyfin
+als Abspieler — erreichbar von überall über Tailscale. Der gesamte Live-TV-Traffic
+läuft dabei durch ein **Premiumize-VPN** (nur Threadfin, nicht der restliche Stack).
 
 ---
 
 ## Inhaltsverzeichnis
 
 1. [Wie funktioniert das?](#1-wie-funktioniert-das)
-2. [Threadfin starten](#2-threadfin-starten)
-3. [M3U-Playlist hinzufügen](#3-m3u-playlist-hinzufügen)
+2. [VPN einrichten (Premiumize) + starten](#2-vpn-einrichten-premiumize--starten)
+3. [M3U-Playlist / Anbieter hinzufügen](#3-m3u-playlist--anbieter-hinzufügen)
 4. [EPG einrichten (Programmzeitschrift)](#4-epg-einrichten-programmzeitschrift)
 5. [Kanäle filtern & aktivieren](#5-kanäle-filtern--aktivieren)
 6. [Jellyfin Live TV konfigurieren](#6-jellyfin-live-tv-konfigurieren)
@@ -23,57 +24,111 @@ als IPTV-Proxy und Jellyfin als Abspieler — erreichbar von überall über Tail
 ## 1. Wie funktioniert das?
 
 ```
-  M3U Playlist            XMLTV EPG
+  M3U / Xtream            XMLTV EPG
   (Senderliste)           (Programmzeitschrift)
        │                        │
        └──────────┬─────────────┘
                   ▼
-         ┌────────────────┐
-         │   Threadfin    │  ← IPTV-Proxy
-         │   Port 34400   │    verwaltet Sender + EPG
-         └───────┬────────┘    emuliert HDHomeRun-Tuner
-                 │ HDHomeRun-Protokoll
-                 ▼
-         ┌────────────────┐
-         │    Jellyfin    │  ← Media-Server
-         │   Live TV Tab  │    zeigt Kanäle + Programm
-         └────────────────┘
-                 │
-    ─────────────┴──────────────────────
-    Smartphone   PC   Fire TV   Browser
-    (via Tailscale von überall)
+      ┌───────────────────────────┐
+      │  gluetun (VPN-Gateway)    │  ← Premiumize OpenVPN
+      │  ┌─────────────────────┐  │    NUR Threadfin-Traffic
+      │  │     Threadfin       │  │    Killswitch bei VPN-Ausfall
+      │  │     Port 34400      │  │    emuliert HDHomeRun-Tuner
+      │  └─────────────────────┘  │
+      └────────────┬──────────────┘
+                   │ HDHomeRun-Protokoll  (http://gluetun:34400)
+                   ▼
+          ┌────────────────┐
+          │    Jellyfin    │  ← Media-Server (direkte Leitung)
+          │   Live TV Tab  │    zeigt Kanäle + Programm
+          └────────────────┘
+                   │
+     ──────────────┴──────────────────────
+     Smartphone   PC   Fire TV   Browser
+     (via Tailscale von überall)
 ```
 
 **Threadfin** fungiert als Mittler zwischen deinen IPTV-Quellen und Jellyfin:
-- Nimmt M3U-Playlisten entgegen (Senderliste mit Stream-URLs)
+- Nimmt M3U-Playlisten oder Xtream-Codes-Zugänge entgegen (Senderliste mit Stream-URLs)
 - Verknüpft Sender mit EPG-Daten (Programmzeitschrift via XMLTV)
 - Stellt sich gegenüber Jellyfin als **HDHomeRun-Tuner** vor
 - Jellyfin nutzt Threadfin genau wie einen echten TV-Empfänger
 
+**Split-Tunnel:** Threadfin teilt sich den Netzwerk-Stack des VPN-Containers **gluetun**
+(`network_mode: service:gluetun`). Dadurch läuft *jeder* Live-TV-Request durch Premiumize,
+während Radarr/Sonarr/Jellyfin/Downloads auf der normalen Leitung bleiben. gluetun bringt
+einen **Killswitch** mit: Fällt das VPN aus, verliert Threadfin die Verbindung — es leakt
+nie über deine echte IP.
+
+> **Rechtlicher Hinweis:** Threadfin und der VPN-Split-Tunnel sind neutrale Technik. Für
+> welche IPTV-Quelle du sie nutzt, bist du selbst verantwortlich — nur Anbieter/Inhalte
+> verwenden, zu denen du berechtigt bist.
+
 ---
 
-## 2. Threadfin starten
+## 2. VPN einrichten (Premiumize) + starten
 
-Threadfin startet automatisch mit dem Stack:
+Live TV liegt hinter dem Compose-Profil **`iptv`** und startet **nicht** mit dem
+normalen `docker compose up -d`, sondern gezielt.
+
+### Schritt 1 — OpenVPN-Config von Premiumize holen
+
+1. Bei [premiumize.me](https://www.premiumize.me) einloggen → **Plugins** (bzw.
+   *premiumize.me/plugins*) → Protokoll **OpenVPN** wählen.
+   > Von den angebotenen Protokollen (SoftEther, OpenVPN, PPTP, SSTP, L2TP) ist **OpenVPN**
+   > das einzige, das mit gluetun funktioniert — und für Live-TV-Bitraten schnell genug.
+2. Die `.ovpn`-Datei herunterladen und auf dem Server ablegen als:
+   ```
+   /mnt/user/appdata/gluetun/premiumize.ovpn
+   ```
+3. Deine Premiumize-VPN-Zugangsdaten (Customer ID + PIN/Passwort) in die `.env` eintragen:
+   ```
+   PREMIUMIZE_VPN_USER=...
+   PREMIUMIZE_VPN_PASSWORD=...
+   ```
+
+### Schritt 2 — Live TV starten
 
 ```bash
-docker compose up -d
+docker compose --profile iptv up -d
 ```
 
-Webinterface aufrufen:
+Das startet **gluetun** (VPN) und danach **Threadfin**. Prüfen, ob das VPN steht:
+
+```bash
+docker logs gluetun 2>&1 | grep -i "public ip"   # zeigt die VPN-IP (nicht deine echte)
+docker inspect -f '{{.State.Health.Status}}' gluetun   # sollte "healthy" sein
+```
+
+Threadfin-Webinterface aufrufen (Port wird über gluetun veröffentlicht):
 ```
 http://<unraid-ip>:34400/web
 ```
-oder via Tailscale:
+oder via Tailscale / DNS-Name:
 ```
-http://<tailscale-ip>:34400/web
+http://<tailscale-ip>:34400/web     bzw.     http://threadfin.fritz.box:34400/web
 ```
 
 Beim ersten Start erscheint der **Setup-Wizard** von Threadfin → durchklicken.
 
+> **Stoppen:** `docker compose --profile iptv stop threadfin gluetun`
+
 ---
 
-## 3. M3U-Playlist hinzufügen
+## 3. M3U-Playlist / Anbieter hinzufügen
+
+### Anbieter mit Zugangsdaten (Xtream Codes oder M3U-Link)
+
+Kommerzielle IPTV-Anbieter liefern meist eines von beidem:
+
+- **Xtream Codes** (Server-URL + Benutzername + Passwort) — in Threadfin unter
+  `Einstellungen → Xtream` direkt eintragen, kein M3U-Link nötig. Threadfin holt
+  Senderliste **und** EPG in einem Rutsch.
+- **M3U-Link** (fertige URL, oft mit `?username=…&password=…`) — wie unten unter
+  „Im Threadfin-Webinterface" einbinden; die EPG-URL bekommst du meist separat vom Anbieter.
+
+> Beide Wege laufen bei diesem Setup automatisch durch das Premiumize-VPN, weil Threadfin
+> im gluetun-Netz-Stack läuft — du musst dafür nichts Zusätzliches tun.
 
 ### Was ist eine M3U-Playlist?
 
@@ -224,9 +279,13 @@ Jeder Tuner ermöglicht einen parallelen Live-Stream. 2–4 ist für den Heimgeb
 ```
 Jellyfin → Admin-Panel (⚙️) → Live TV → Tuner-Geräte → +
 → Tuner-Typ: HD HomeRun
-→ URL: http://threadfin:34400
+→ URL: http://gluetun:34400
 → Speichern
 ```
+
+> **Wichtig:** Die URL ist `http://gluetun:34400`, **nicht** `http://threadfin:34400`.
+> Threadfin läuft im Netz-Stack von gluetun und hat keinen eigenen Docker-Namen mehr —
+> im arr_net ist der Threadfin-Port über den Namen `gluetun` erreichbar.
 
 > Jellyfin sucht automatisch nach HDHomeRun-Geräten im Netzwerk — Threadfin erscheint
 > dabei möglicherweise nicht. In diesem Fall manuell die URL eintragen.
@@ -382,7 +441,7 @@ Und in `docker-compose.yml` unter Jellyfin volumes hinzufügen (einmalig):
 **Keine Kanäle in Jellyfin**
 → Threadfin läuft? `docker logs threadfin`
 → M3U in Threadfin geladen? Threadfin UI → Kanäle → Liste leer?
-→ Tuner-URL in Jellyfin korrekt? `http://threadfin:34400` (nicht `localhost`)
+→ Tuner-URL in Jellyfin korrekt? `http://gluetun:34400` (nicht `threadfin`, nicht `localhost`)
 → Kanal-Scan in Jellyfin neu starten: Admin → Live TV → Kanal-Scan
 
 **EPG zeigt kein Programm**
@@ -407,9 +466,25 @@ Und in `docker-compose.yml` unter Jellyfin volumes hinzufügen (einmalig):
   chown -R 99:100 /mnt/user/appdata/threadfin/
   ```
 → Logs: `docker logs threadfin`
+→ Threadfin startet erst, wenn **gluetun healthy** ist (`depends_on`). Hängt gluetun,
+  startet auch Threadfin nicht — zuerst das VPN prüfen (nächster Punkt).
+
+**VPN (gluetun) wird nicht healthy / Threadfin ohne Verbindung**
+→ Logs: `docker logs gluetun` — nach `AUTH_FAILED`, `TLS`, oder `public ip` suchen
+→ Liegt die Config unter `/mnt/user/appdata/gluetun/premiumize.ovpn`?
+→ `PREMIUMIZE_VPN_USER` / `PREMIUMIZE_VPN_PASSWORD` in `.env` korrekt?
+→ VPN-IP testen: `docker exec gluetun wget -qO- https://ipinfo.io/ip` (muss die
+  Premiumize-IP zeigen, nicht deine echte)
+→ Nach `.env`- oder `.ovpn`-Änderung neu aufbauen:
+  `docker compose --profile iptv up -d --force-recreate gluetun threadfin`
+
+**Kein Tuner in Jellyfin gefunden**
+→ URL ist `http://gluetun:34400` (nicht `threadfin`) — siehe Abschnitt 6
+→ Läuft der iptv-Stack? `docker ps | grep -E 'gluetun|threadfin'`
 
 **M3U-Playlist leer nach Update**
-→ Prüfen ob die GitHub-URL erreichbar ist (Unraid benötigt DNS → AdGuard aktiv?)
+→ Prüfen ob die Anbieter-/GitHub-URL erreichbar ist. Achtung: Threadfin löst DNS
+  **durch das VPN** auf (gluetun) — bei DNS-Problemen zuerst `docker logs gluetun` prüfen
 → Alternativ: M3U-Datei lokal herunterladen und als Datei in Threadfin einbinden
 
 ---
