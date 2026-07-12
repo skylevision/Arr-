@@ -81,7 +81,15 @@ normalen `docker compose up -d`, sondern gezielt.
    ```
    /mnt/user/appdata/gluetun/premiumize.ovpn
    ```
-3. Deine Premiumize-VPN-Zugangsdaten (Customer ID + PIN/Passwort) in die `.env` eintragen:
+3. **`remote`-Zeile auf eine IP setzen** — gluetun akzeptiert bei Custom-Configs nur
+   IP-Adressen, keine Hostnamen. Server-Hostnamen auflösen und ersetzen:
+   ```bash
+   getent hosts vpn-nl.premiumize.me            # z. B. → 185.107.94.249
+   sed -i 's|^remote .*|remote 185.107.94.249 1194|' /mnt/user/appdata/gluetun/premiumize.ovpn
+   ```
+   > Ändert Premiumize später die Server-IP (VPN wird plötzlich nicht mehr healthy),
+   > einfach neu auflösen und die `remote`-Zeile aktualisieren.
+4. Deine Premiumize-VPN-Zugangsdaten (Customer ID + PIN/Passwort) in die `.env` eintragen:
    ```
    PREMIUMIZE_VPN_USER=...
    PREMIUMIZE_VPN_PASSWORD=...
@@ -91,9 +99,14 @@ normalen `docker compose up -d`, sondern gezielt.
 
 ```bash
 docker compose --profile iptv up -d
+bash bootstrap/11-threadfin.sh   # Threadfin an alle Interfaces binden (0.0.0.0)
 ```
 
-Das startet **gluetun** (VPN) und danach **Threadfin**. Prüfen, ob das VPN steht:
+Der zweite Befehl ist **wichtig**: Threadfin bindet im VPN-Netz-Stack sonst nur an die
+Tunnel-IP und ist weder über den Host-Port noch aus Jellyfin erreichbar. Das Skript ist
+idempotent — bei bereits korrekter Einstellung macht es nichts.
+
+Prüfen, ob das VPN steht:
 
 ```bash
 docker logs gluetun 2>&1 | grep -i "public ip"   # zeigt die VPN-IP (nicht deine echte)
