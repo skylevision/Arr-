@@ -336,6 +336,11 @@ services:
       - HOMEPAGE_VAR_UNRAID_IP=${UNRAID_IP:-192.168.1.100}
       # Ohne diese Variable blockt Homepage ≥v0.234 fremde Hostnamen
       - HOMEPAGE_ALLOWED_HOSTS=${HOMEPAGE_ALLOWED_HOSTS:-*}
+    # Homepage läuft als PUID (99); der Docker-Socket gehört root:docker.
+    # Ohne Mitgliedschaft in der docker-Gruppe → EACCES beim Container-Status.
+    # GID auf dem Host ermitteln: stat -c %g /var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:-281}"
     networks:
       - arr_net
 
