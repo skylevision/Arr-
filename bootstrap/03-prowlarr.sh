@@ -69,6 +69,26 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Indexer: AnimeTosho (Anime-Usenet, frei, keine Anmeldung nötig)
+# ---------------------------------------------------------------------------
+info "Stelle Indexer AnimeTosho sicher ..."
+
+AT_EXISTING="$(papi GET /indexer | jq \
+  '[.[] | select((.name | ascii_downcase | test("tosho")) and .protocol=="usenet")] | first // empty')"
+
+if [[ -n "$AT_EXISTING" ]]; then
+  success "Indexer AnimeTosho existiert (id=$(echo "$AT_EXISTING" | jq -r .id))."
+else
+  AT_SCHEMA="$(papi GET /indexer/schema | jq \
+    '[.[] | select((.name | ascii_downcase | test("tosho")) and .protocol=="usenet")] | first')"
+  [[ -n "$AT_SCHEMA" && "$AT_SCHEMA" != "null" ]] || error "AnimeTosho-Schema nicht in Prowlarr gefunden."
+  AT_NEW="$(echo "$AT_SCHEMA" | jq '.enable = true | .appProfileId = 1')"
+  papi POST "/indexer?forceSave=true" "$AT_NEW" >/dev/null \
+    || error "AnimeTosho-Anlage fehlgeschlagen — später erneut: bash bootstrap/03-prowlarr.sh"
+  success "Indexer AnimeTosho angelegt."
+fi
+
+# ---------------------------------------------------------------------------
 # Applications: Radarr + Sonarr (fullSync)
 # ---------------------------------------------------------------------------
 ensure_app() {
