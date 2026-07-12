@@ -318,11 +318,14 @@ Config files are at `${APPDATA}/homepage/`. Edit `services.yaml` to add your API
 
 ### Intel QuickSync / VAAPI
 
-Uncomment in `docker-compose.yml` under the `jellyfin` service:
+**Enabled by default** — `docker-compose.yml` passes the iGPU through to Jellyfin:
 ```yaml
 devices:
   - /dev/dri:/dev/dri
 ```
+In Jellyfin, *Dashboard → Playback → Transcoding* must be set to **Intel QuickSync (QSV)**
+with HDR tone mapping enabled (already configured by this repo's setup). On hosts without
+an Intel iGPU, remove the `devices:` block.
 
 ### Nvidia
 
