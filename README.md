@@ -29,13 +29,13 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 | **Prowlarr** | Indexer & tracker manager | 9696 |
 | **Radarr** | Movie collection manager | 7878 |
 | **Sonarr** | TV show collection manager | 8989 |
-| **Lidarr** | Music collection manager *(optional)* | 8686 |
-| **Readarr** | Book / AudioBook manager *(optional)* | 8787 |
+| **Lidarr** | Music collection manager *(optional, profile `lidarr`)* | 8686 |
+| **Readarr** | Book / AudioBook manager *(optional, profile `readarr`)* | 8787 |
 | **Bazarr** | Subtitle management | 6767 |
 | **Seerr** | Media request portal — supports Jellyfin, Plex, Emby | 5055 |
-| **Vaultwarden** | Self-hosted Bitwarden-compatible password manager | 8082 |
-| **Threadfin** | IPTV proxy — Live TV for Jellyfin | 34400 |
-| **AdGuard Home** | Network-wide DNS ad blocker & parental control | 8081 (UI), 53 (DNS) |
+| **Vaultwarden** | Self-hosted Bitwarden-compatible password manager *(optional, profile `vaultwarden`)* | 8082 |
+| **Threadfin** | IPTV proxy — Live TV for Jellyfin *(optional, profile `iptv`)* | 34400 |
+| **AdGuard Home** | Network-wide DNS ad blocker & parental control *(optional, profile `adguard`)* | 8081 (UI), 53 (DNS) |
 | **Jellyfin** | Media server | 8096 |
 | **Homepage** | Unified dashboard | 3000 |
 
@@ -97,13 +97,11 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
     │   └── usenet/
     │       ├── incomplete/
     │       └── complete/
+    │           ├── movies/   ← SABnzbd category "movies"
+    │           └── tv/       ← SABnzbd category "tv"
     └── media/
-        ├── movies/
-        ├── movies-4k/
-        ├── tv/
-        ├── tv-4k/
-        ├── music/
-        └── books/
+        ├── movies/           ← Radarr root folder
+        └── tv/               ← Sonarr root folder
 ```
 
 > **Why a single `/data` share?**
@@ -131,7 +129,7 @@ cd arr-stack
 
 ```bash
 cp .env.example .env
-nano .env          # set UNRAID_IP, TS_HOSTNAME, paths, PUID/PGID
+nano .env          # set UNRAID_IP, TS_HOSTNAME, TS_AUTHKEY, EWEKA_*, SCENENZBS_APIKEY
 ```
 
 Get your PUID / PGID:
@@ -143,30 +141,44 @@ id $USER
 > **Unraid default**: PUID=**99** (nobody), PGID=**100** (users).
 > These are Unraid's built-in media user — use them unless you created a dedicated user.
 
-### 4. Run setup
+### 4. Bootstrap — one command
 
 ```bash
-bash setup.sh
+bash bootstrap.sh
 ```
 
-This creates all required directories under `APPDATA` and `DATA` and writes default Homepage config files.
+This is **idempotent** (safe to re-run any time) and does everything:
 
-### 5. Start the stack
+1. Creates all directories under `APPDATA` and `DATA` (TRaSH layout) with correct ownership
+2. Writes default Homepage config files (only if missing)
+3. Creates the `arr_net` Docker network
+4. Validates the compose file and starts the stack (pinned image versions)
+5. Waits for all healthchecks to pass
+6. Configures the services via their APIs (`bootstrap/NN-*.sh`, each re-runnable on its own):
+   extracts API keys to `.env.runtime`, sets up SABnzbd (Usenet server, folders, categories),
+   Prowlarr (indexer + app sync to Radarr/Sonarr), Radarr/Sonarr (root folder, download
+   client, naming), Recyclarr (TRaSH German-DL-4K quality profiles) and Seerr defaults
+
+Afterwards, verify everything with:
 
 ```bash
-docker compose up -d
+bash scripts/healthcheck.sh   # containers, APIs, indexer/client tests, hardlink test
 ```
 
-### 6. Optional services
+> `setup.sh` (directories + Homepage config only, no API configuration) still exists for
+> UI-based setups — see [Unraid UI Setup](UNRAID_UI_SETUP.md).
 
-Lidarr and Readarr use [Docker Compose profiles](https://docs.docker.com/compose/profiles/) and are **off by default**.
+### 5. Optional services
+
+Vaultwarden, AdGuard Home, Threadfin, Lidarr and Readarr use
+[Docker Compose profiles](https://docs.docker.com/compose/profiles/) and are **off by default**.
 
 ```bash
-# Start Lidarr
-docker compose --profile lidarr up -d lidarr
-
-# Start Readarr
-docker compose --profile readarr up -d readarr
+docker compose --profile vaultwarden up -d vaultwarden
+docker compose --profile adguard     up -d adguardhome
+docker compose --profile iptv        up -d threadfin
+docker compose --profile lidarr      up -d lidarr
+docker compose --profile readarr     up -d readarr
 ```
 
 ## Tailscale Setup
@@ -192,6 +204,12 @@ Once authenticated, all services are reachable at `http://<tailscale-ip>:<port>`
 
 ## First-Time Configuration
 
+> **Using `bootstrap.sh`?** Then SABnzbd, Prowlarr, Radarr, Sonarr, Recyclarr and Seerr
+> defaults are configured automatically — the sections below only apply to manual/UI-based
+> setups (or as reference for what the bootstrap configured). Manual steps that always
+> remain: the Jellyfin first-run wizard, the Seerr login/Jellyfin link, and Bazarr
+> subtitle-provider credentials.
+
 ### SABnzbd — Usenet Downloader
 
 1. Open SABnzbd (`http://<ip>:8090`) → the Quick-Start wizard opens automatically
@@ -201,8 +219,11 @@ Once authenticated, all services are reachable at `http://<tailscale-ip>:<port>`
 
    | Field | Value |
    |---|---|
-   | Temporary Download Folder | `/downloads/usenet/incomplete` |
-   | Completed Download Folder | `/downloads/usenet/complete` |
+   | Temporary Download Folder | `/data/downloads/usenet/incomplete` |
+   | Completed Download Folder | `/data/downloads/usenet/complete` |
+
+   > SABnzbd mounts the whole `${DATA}` share as `/data` (same as Radarr/Sonarr), so
+   > imports can use hardlinks and no remote path mappings are needed.
 
 4. **API key** — copy it from *Config → General → API Key* — you'll need it for Radarr, Sonarr and Homepage
 5. **Categories** (optional but recommended) — *Config → Categories*:
@@ -314,14 +335,35 @@ environment:
 
 ## Updating
 
-All images use `:latest`. To pull updates and restart:
+All images are **pinned to specific versions** in `docker-compose.yml` — no surprise
+upgrades. To update a service:
+
+1. Bump the image tag in `docker-compose.yml` (check the project's release notes)
+2. `docker compose up -d` (pulls the new tag and recreates only that container)
+3. Commit the tag bump so the repo always reflects what is running
+
+## Backup & Restore
+
+Create a consistent backup of all service configs (stops the stack briefly, tars
+`appdata`, restarts):
 
 ```bash
-docker compose pull
-docker compose up -d
+bash scripts/backup-appdata.sh
+# writes /mnt/user/backups/arr-stack/<timestamp>/appdata-<timestamp>.tar.gz (+ sha256)
+# override the destination with BACKUP_ROOT=/path bash scripts/backup-appdata.sh
 ```
 
-Or use the **Unraid "Check for Updates"** button in the Docker tab.
+Suitable as an [Unraid User Script](https://forums.unraid.net/topic/48286-plugin-ca-user-scripts/)
+on a schedule.
+
+**Restore**:
+
+```bash
+docker compose down
+tar -xzf /mnt/user/backups/arr-stack/<timestamp>/appdata-<timestamp>.tar.gz -C /mnt/user/appdata
+git checkout <known-good-commit>   # if the compose file also needs rolling back
+docker compose up -d
+```
 
 ## Troubleshooting
 
