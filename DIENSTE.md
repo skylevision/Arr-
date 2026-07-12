@@ -39,10 +39,14 @@ AdGuard Home (192.168.178.5:53)          ← von der Fritz!Box per DHCP verteilt
 
 1. **Heimnetz → Netzwerk → Netzwerkeinstellungen → IPv4-Einstellungen**
    → **Lokaler DNS-Server: `192.168.178.5`** ✅ *(das ist die richtige Stelle!)*
-2. **Internet → Zugangsdaten → DNS-Server**: auf **Automatik/Provider** lassen ⚠️
+2. **IPv6-Einstellungen** (gleiche Seite, Abschnitt IPv6): Haken **entfernen** bei
+   **„DNSv6-Server auch über Router Advertisement bekanntgeben (RFC 5006)"** ⚠️
+   *(sonst verteilt die Fritz!Box sich selbst als IPv6-DNS — Geräte fragen dann
+   bevorzugt den Router statt AdGuard, und `*.fritz.box`-Namen schlagen fehl)*
+3. **Internet → Zugangsdaten → DNS-Server**: auf **Automatik/Provider** lassen ⚠️
    *(hier NICHT die 192.168.178.5 eintragen — das erzeugt eine DNS-Schleife
    Router → AdGuard → Router und die Fritz!Box schaltet AdGuard dann ab)*
-3. Geräte einmal neu verbinden: WLAN aus/an, bzw. am PC
+4. Geräte einmal neu verbinden: WLAN aus/an, bzw. am PC
    `ipconfig /release && ipconfig /renew && ipconfig /flushdns`
 
 **Test:** `nslookup jellyfin.fritz.box` muss `192.168.178.5` liefern.
