@@ -466,6 +466,20 @@ services:
       - qbittorrent_data:/config
       - ${DATA}:/data
 
+  # FlareSolverr — löst Cloudflare-Challenges für Prowlarr-Indexer (1337x,
+  # XXXClub …). Kein VPN nötig; Prowlarr erreicht es als http://flaresolverr:8191.
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:v3.3.21
+    container_name: flaresolverr
+    restart: unless-stopped
+    profiles:
+      - torrent
+    environment:
+      - LOG_LEVEL=info
+      - TZ=${TZ:-Europe/Berlin}
+    networks:
+      - arr_net
+
   threadfin:
     image: fyb3roptik/threadfin@sha256:863fb0c2945617b4aa48b79eaa655954df72d68fbee6e49a1465934ceb3f057e
     container_name: threadfin

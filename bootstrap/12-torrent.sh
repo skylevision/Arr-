@@ -139,8 +139,26 @@ fi
 P="http://localhost:${PROWLARR_PORT:-9696}/api/v1"
 papi() { arr_api "$1" "$P" "$PROWLARR_API_KEY" "$2" "${3:-}"; }
 
-ensure_indexer() { # <schema-implementationName oder .definitionName-Regex> <Anzeigename>
-  local match="$1" name="$2"
+# FlareSolverr-Proxy + Tag sicherstellen (für Cloudflare-Indexer wie 1337x).
+# Indexer mit diesem Tag routet Prowlarr über FlareSolverr.
+FS_TAG=""
+if [[ "$(docker inspect -f '{{.State.Running}}' flaresolverr 2>/dev/null)" == "true" ]]; then
+  FS_TAG="$(papi GET /tag | jq -r '[.[]|select(.label=="flaresolverr")][0].id // empty')"
+  [[ -n "$FS_TAG" ]] || FS_TAG="$(papi POST /tag '{"label":"flaresolverr"}' | jq -r .id)"
+  if ! papi GET /indexerproxy | jq -e '.[]|select(.name=="flaresolverr")' >/dev/null 2>&1; then
+    PSCHEMA="$(papi GET /indexerproxy/schema | jq '[.[]|select(.implementation=="FlareSolverr")]|first')"
+    PNEW="$(echo "$PSCHEMA" | jq --argjson t "$FS_TAG" '.name="flaresolverr" | .tags=[$t]
+      | .fields=(.fields|map(if .name=="host" then .value="http://flaresolverr:8191" else . end))')"
+    papi POST /indexerproxy "$PNEW" >/dev/null 2>&1 && success "Prowlarr: FlareSolverr-Proxy angelegt (Tag flaresolverr)."
+  else
+    success "Prowlarr: FlareSolverr-Proxy vorhanden."
+  fi
+else
+  warn "flaresolverr läuft nicht — Cloudflare-Indexer (1337x, XXXClub) könnten fehlschlagen."
+fi
+
+ensure_indexer() { # <schema-name> <anzeigename> [tag-id für FlareSolverr]
+  local match="$1" name="$2" tag="${3:-}"
   if papi GET /indexer | jq -e --arg n "$name" '.[] | select(.name==$n)' >/dev/null; then
     success "Prowlarr: Indexer ${name} vorhanden."
     return
@@ -150,7 +168,9 @@ ensure_indexer() { # <schema-implementationName oder .definitionName-Regex> <Anz
     '[.[] | select((.name|ascii_downcase)==($m|ascii_downcase))] | first')"
   [[ -n "$schema" && "$schema" != "null" ]] || { warn "Prowlarr: Schema für '${name}' nicht gefunden — übersprungen."; return; }
   local new
-  new="$(echo "$schema" | jq --arg n "$name" '.name=$n | .enable=true | .appProfileId=1')"
+  new="$(echo "$schema" | jq --arg n "$name" --arg tag "$tag" \
+    '.name=$n | .enable=true | .appProfileId=1
+     | (if $tag!="" then .tags=[($tag|tonumber)] else . end)')"
   if papi POST "/indexer?forceSave=true" "$new" >/dev/null 2>&1; then
     success "Prowlarr: Indexer ${name} angelegt."
   else
@@ -162,12 +182,12 @@ ensure_indexer() { # <schema-implementationName oder .definitionName-Regex> <Anz
 ensure_indexer "sukebei.nyaa.si" "sukebei.nyaa.si"
 ensure_indexer "Nyaa.si"         "Nyaa.si"
 ensure_indexer "Anidex"          "Anidex"
-# Allgemein (Filme/Serien + XXX-Sektion)
-ensure_indexer "1337x"           "1337x"
+# Allgemein (Filme/Serien + XXX-Sektion) — 1337x hinter Cloudflare → FlareSolverr
+ensure_indexer "1337x"           "1337x"          "$FS_TAG"
 ensure_indexer "The Pirate Bay"  "The Pirate Bay"
-# Reine Porn-Indexer (Scene)
+# Reine Porn-Indexer (Scene) — XXXClub hinter Cloudflare → FlareSolverr
 ensure_indexer "PornoTorrent"    "PornoTorrent"
-ensure_indexer "XXXClub"         "XXXClub"
+ensure_indexer "XXXClub"         "XXXClub"         "$FS_TAG"
 ensure_indexer "PornRips"        "PornRips"
 
 info "Stoße Prowlarr-App-Sync an ..."
