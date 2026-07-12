@@ -1,0 +1,58 @@
+# ============================================================
+# recyclarr.yml — Quality Profiles & Custom Formats (TRaSH Guides)
+#
+# Recyclarr v8: Profile werden guide-backed per trash_id gesynct —
+# Qualities, Custom Formats, Scores und Language kommen komplett
+# aus den TRaSH Guides (German-EN-Profile):
+#   Radarr: [German] Remux + WEB 2160p
+#     https://trash-guides.info/Radarr/radarr-setup-quality-profiles-german-en/
+#   Sonarr: [German] UHD Remux + WEB
+#     https://trash-guides.info/Sonarr/sonarr-setup-quality-profiles-german-en/
+# → Dual Language (DE+EN) bevorzugt, englischer Fallback erlaubt,
+#   Remux > Bluray > WEB, HDR/DV-Handling inklusive.
+#
+# Sync (macht bootstrap/06-recyclarr.sh):
+#   docker run --rm --network arr_net \
+#     -e RADARR_API_KEY -e SONARR_API_KEY \
+#     -v ./recyclarr:/config ghcr.io/recyclarr/recyclarr:8.6.0 sync
+# ============================================================
+
+radarr:
+  radarr-main:
+    base_url: http://radarr:7878
+    api_key: !env_var RADARR_API_KEY
+
+    quality_definition:
+      type: movie
+
+    quality_profiles:
+      - trash_id: 79faa9943cef2f510b997b1f2a9f3ea6 # [German] Remux + WEB 2160p
+
+    custom_formats:
+      ### HDR / DV — Scores aus dem Guide
+      - trash_ids:
+          - 923b6abef9b17f937fab56cfcf89e1f1 # DV (w/o HDR fallback) — Strafe für inkompatible DV-only-Releases
+          - b337d6812e06c200ec9a2d3cfa9d20a7 # DV Boost
+          - caa37d0df9c348912df1fb1d88f9273a # HDR10+ Boost
+        assign_scores_to:
+          - trash_id: 79faa9943cef2f510b997b1f2a9f3ea6
+
+sonarr:
+  sonarr-main:
+    base_url: http://sonarr:8989
+    api_key: !env_var SONARR_API_KEY
+
+    quality_definition:
+      type: series
+
+    quality_profiles:
+      - trash_id: 08cececf1840290f6fd490b7d79e8642 # [German] UHD Remux + WEB
+
+    custom_formats:
+      ### HDR / DV — Scores aus dem Guide
+      - trash_ids:
+          - 9b27ab6498ec0f31a3353992e19434ca # DV (w/o HDR fallback) — Strafe für inkompatible DV-only-Releases
+          - 7c3a61a9c6cb04f52f1544be6d44a026 # DV Boost
+          - 0c4b99df9206d2cfac3c05ab897dd62a # HDR10+ Boost
+        assign_scores_to:
+          - trash_id: 08cececf1840290f6fd490b7d79e8642
