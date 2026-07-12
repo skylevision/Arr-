@@ -35,7 +35,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 | **Seerr** | Media request portal — supports Jellyfin, Plex, Emby | 5055 |
 | **Vaultwarden** | Self-hosted Bitwarden-compatible password manager *(optional, profile `vaultwarden`)* | 8082 |
 | **Threadfin** | IPTV proxy — Live TV for Jellyfin *(optional, profile `iptv`)* | 34400 |
-| **AdGuard Home** | Network-wide DNS ad blocker & parental control *(optional, profile `adguard`)* | 8081 (UI), 53 (DNS) |
+| **AdGuard Home** | Local DNS (service names like `jellyfin.fritz.box`) & network-wide ad blocker | 8081 (UI), 53 (DNS) |
 | **Jellyfin** | Media server | 8096 |
 | **Homepage** | Unified dashboard | 3000 |
 
@@ -170,12 +170,11 @@ bash scripts/healthcheck.sh   # containers, APIs, indexer/client tests, hardlink
 
 ### 5. Optional services
 
-Vaultwarden, AdGuard Home, Threadfin, Lidarr and Readarr use
+Vaultwarden, Threadfin, Lidarr and Readarr use
 [Docker Compose profiles](https://docs.docker.com/compose/profiles/) and are **off by default**.
 
 ```bash
 docker compose --profile vaultwarden up -d vaultwarden
-docker compose --profile adguard     up -d adguardhome
 docker compose --profile iptv        up -d threadfin
 docker compose --profile lidarr      up -d lidarr
 docker compose --profile readarr     up -d readarr
@@ -290,20 +289,35 @@ Once authenticated, all services are reachable at `http://<tailscale-ip>:<port>`
 
 > See [VAULTWARDEN_SETUP.md](VAULTWARDEN_SETUP.md) for the full guide including client setup, 2FA, import, and backup.
 
-### AdGuard Home
+### AdGuard Home — Local DNS & service names
 
-1. On **first start**, open the setup wizard at `http://<ip>:3001` (mapped to `ADGUARD_SETUP_PORT`)
-2. Follow the wizard — set admin username/password and configure the listen interfaces
-3. After the wizard completes, the web UI is at `http://<ip>:8081` (`ADGUARD_WEBUI_PORT`)
-4. Go to *Settings → DNS settings* to configure upstream servers (default: `1.1.1.1`, `8.8.8.8`)
-5. Point your **router's primary DNS** to `<UNRAID_IP>` to filter ads network-wide
+`bootstrap/09-adguard.sh` configures everything automatically (no setup wizard needed):
+admin login from `.env` (`ADGUARD_USER` / `ADGUARD_PASSWORD`), DoH upstreams, forwarding
+of `LOCAL_DOMAIN` + reverse DNS to your router, and **DNS rewrites** so every service is
+reachable by name:
+
+| Name | URL |
+|---|---|
+| `jellyfin.fritz.box` | `http://jellyfin.fritz.box:8096` |
+| `seerr.fritz.box` | `http://seerr.fritz.box:5055` |
+| `radarr.fritz.box` / `sonarr.fritz.box` | `:7878` / `:8989` |
+| `prowlarr` / `bazarr` / `sabnzbd` | `:9696` / `:6767` / `:8090` |
+| `homepage.fritz.box` | `http://homepage.fritz.box:3000` |
+| `adguard.fritz.box` / `unraid.fritz.box` | `:8081` / Unraid UI |
+
+**One manual router step (Fritz!Box)**: *Heimnetz → Netzwerk → Netzwerkeinstellungen →
+IPv4-Einstellungen → **Lokaler DNS-Server** = `<UNRAID_IP>`*. After that, all devices get
+their DNS from AdGuard via DHCP (reconnect Wi-Fi once). Because the Fritz!Box hands out
+`fritz.box` as DNS search domain, typing just `jellyfin:8096` in a browser works too.
+
+The AdGuard web UI is at `http://<ip>:8081` (`ADGUARD_WEBUI_PORT`).
 
 > **Port 53 on Unraid**: Port 53 is bound to `UNRAID_IP` (your server's LAN IP) to avoid
 > conflicts with Unraid's own resolver on `127.0.0.1:53`.
 > Make sure `UNRAID_IP` in `.env` matches your server's actual LAN IP.
 
-> **Port conflict note**: The setup wizard uses port 3001 by default (`ADGUARD_SETUP_PORT`)
-> to avoid clashing with Homepage on port 3000. You only need port 3001 once during setup.
+> **Heads-up**: once the router points at AdGuard, LAN DNS depends on this server —
+> if you shut it down, set the router's local DNS back to automatic.
 
 ### Jellyfin
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Docker Compose stack ("arr-stack") for automated media management on an **Unraid** server: Tailscale, SABnzbd, Prowlarr, Radarr, Sonarr, Bazarr, Seerr, Jellyfin, and Homepage active; Lidarr/Readarr, Vaultwarden, Threadfin, and AdGuard Home behind compose profiles (off by default). There is no application code, build, or test suite — the deliverables are `docker-compose.yml`, `bootstrap.sh` + `bootstrap/NN-*.sh` (idempotent API configuration), `recyclarr/recyclarr.yml`, `setup.sh`, `.env.example`, `scripts/`, and the Markdown setup guides. The stack is deployed on the Unraid host, not on this Windows machine.
+A Docker Compose stack ("arr-stack") for automated media management on an **Unraid** server: Tailscale, SABnzbd, Prowlarr, Radarr, Sonarr, Bazarr, Seerr, Jellyfin, Homepage, and AdGuard Home (local DNS: `<service>.fritz.box` rewrites + ad blocking) active; Lidarr/Readarr, Vaultwarden, and Threadfin behind compose profiles (off by default). There is no application code, build, or test suite — the deliverables are `docker-compose.yml`, `bootstrap.sh` + `bootstrap/NN-*.sh` (idempotent API configuration), `recyclarr/recyclarr.yml`, `setup.sh`, `.env.example`, `scripts/`, and the Markdown setup guides. The stack is deployed on the Unraid host, not on this Windows machine.
 
 ## Commands
 

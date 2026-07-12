@@ -205,7 +205,7 @@ info "Starte Stack (gepinnte Images, Profile: nur aktive Dienste) ..."
 docker compose up -d --remove-orphans
 
 # Container deaktivierter Profile stoppen, falls sie noch von früher laufen
-for c in vaultwarden adguardhome threadfin; do
+for c in vaultwarden threadfin; do
   if [[ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" == "true" ]]; then
     docker stop "$c" >/dev/null
     warn "Gestoppt (Profil deaktiviert): $c"
@@ -215,7 +215,7 @@ done
 # ---------------------------------------------------------------------------
 # 5. Auf Healthchecks warten
 # ---------------------------------------------------------------------------
-HEALTH_SERVICES=(tailscale sabnzbd prowlarr radarr sonarr bazarr jellyfin seerr homepage)
+HEALTH_SERVICES=(tailscale sabnzbd prowlarr radarr sonarr bazarr jellyfin seerr homepage adguardhome)
 TIMEOUT=300
 info "Warte auf Healthchecks (max. ${TIMEOUT}s): ${HEALTH_SERVICES[*]}"
 

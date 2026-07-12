@@ -365,14 +365,15 @@ services:
       start_period: 30s
 
   # ==========================================================================
-  # ADGUARD HOME — deaktiviert (--profile adguard), Einrichtung folgt später
+  # ADGUARD HOME — lokaler DNS: löst jellyfin.fritz.box & Co. auf die
+  # Server-IP auf (Rewrites via bootstrap/09-adguard.sh) + Werbeblocker.
+  # Dafür muss im Router (Fritz!Box) der lokale DNS-Server auf ${UNRAID_IP}
+  # zeigen: Heimnetz → Netzwerk → Netzwerkeinstellungen → IPv4 → lokaler DNS.
   # ==========================================================================
   adguardhome:
     image: adguard/adguardhome:v0.107.73
     container_name: adguardhome
     restart: unless-stopped
-    profiles:
-      - adguard
     ports:
       - "${UNRAID_IP}:53:53/tcp"
       - "${UNRAID_IP}:53:53/udp"
