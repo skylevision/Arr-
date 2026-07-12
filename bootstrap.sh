@@ -56,7 +56,7 @@ APPDATA_DIRS=(
   jellyfin/config jellyfin/cache homepage
   adguardhome/work adguardhome/conf
   # Für deaktivierte Profile vorbereitet:
-  vaultwarden threadfin/conf threadfin/temp gluetun
+  vaultwarden threadfin/conf threadfin/temp gluetun qbittorrent
   lidarr readarr
 )
 for dir in "${APPDATA_DIRS[@]}"; do
@@ -71,10 +71,11 @@ success "appdata: ${APPDATA}"
 
 # TRaSH-Layout: ein gemeinsames /data für Downloads + Medien
 DATA_DIRS=(
-  media/movies media/tv media/anime
+  media/movies media/tv media/anime media/hentai
   downloads/usenet/incomplete
   downloads/usenet/complete/movies
   downloads/usenet/complete/tv
+  downloads/torrents/incomplete
 )
 for dir in "${DATA_DIRS[@]}"; do
   mkdir -p "${DATA}/${dir}"
@@ -83,9 +84,10 @@ done
 # damit der Lauf auch bei großen Bibliotheken schnell bleibt)
 chown "${PUID}:${PGID}" "${DATA}" "${DATA}/media" "${DATA}/downloads" \
   "${DATA}/downloads/usenet" "${DATA}/media/movies" "${DATA}/media/tv" \
-  "${DATA}/media/anime" \
+  "${DATA}/media/anime" "${DATA}/media/hentai" \
   "${DATA}/downloads/usenet/incomplete" "${DATA}/downloads/usenet/complete" \
-  "${DATA}/downloads/usenet/complete/movies" "${DATA}/downloads/usenet/complete/tv"
+  "${DATA}/downloads/usenet/complete/movies" "${DATA}/downloads/usenet/complete/tv" \
+  "${DATA}/downloads/torrents" "${DATA}/downloads/torrents/incomplete"
 success "data:    ${DATA}"
 
 # ---------------------------------------------------------------------------

@@ -87,6 +87,9 @@ volumes:
   gluetun_data:
     driver: local
     driver_opts: { type: none, o: bind, device: "${APPDATA}/gluetun" }
+  qbittorrent_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/qbittorrent" }
   adguard_work:
     driver: local
     driver_opts: { type: none, o: bind, device: "${APPDATA}/adguardhome/work" }
@@ -394,27 +397,30 @@ services:
   # THREADFIN — deaktiviert (--profile iptv), Einrichtung folgt später
   # Kein verlässliches Versions-Tag im Docker Hub → Pin per Digest.
   # ==========================================================================
-  # gluetun = VPN-Gateway NUR für Threadfin (Split-Tunnel). Threadfin teilt
-  # sich unten den Netzwerk-Stack (network_mode: service:gluetun) → sämtlicher
-  # Live-TV-Traffic läuft durch Premiumize, der restliche Stack bleibt direkt.
-  # Killswitch: fällt das VPN aus, hat Threadfin keine Verbindung (kein Leak).
+  # gluetun = VPN-Gateway (Split-Tunnel) für Threadfin (Live TV, --profile iptv)
+  # UND qBittorrent (Torrents, --profile torrent). Beide teilen sich den
+  # Netzwerk-Stack (network_mode: service:gluetun) → ihr Traffic läuft durch
+  # Premiumize, der restliche Stack bleibt direkt. Killswitch: fällt das VPN
+  # aus, haben beide keine Verbindung (kein Leak über die echte IP).
   #
   # Voraussetzung: OpenVPN-Config von premiumize.me/plugins als
   # ${APPDATA}/gluetun/premiumize.ovpn ablegen; Zugang in .env (PREMIUMIZE_*).
-  # Der Threadfin-Port wird HIER veröffentlicht (Threadfin selbst hat keinen
-  # eigenen Netzwerk-Namen mehr → Jellyfin-Tuner-URL: http://gluetun:34400).
+  # Die Ports der Insassen werden HIER veröffentlicht (sie haben keinen eigenen
+  # Netzwerk-Namen mehr → aus arr_net erreichbar als http://gluetun:<port>).
   gluetun:
     image: qmcgaw/gluetun:v3.41.1
     container_name: gluetun
     restart: unless-stopped
     profiles:
       - iptv
+      - torrent
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
     ports:
-      - "${THREADFIN_PORT:-34400}:34400"   # Threadfin läuft in diesem Netz-Stack
+      - "${THREADFIN_PORT:-34400}:34400"   # Threadfin  (Profil iptv)
+      - "${QBIT_PORT:-8085}:8080"          # qBittorrent WebUI (Profil torrent)
     volumes:
       - gluetun_data:/gluetun
     environment:
@@ -424,9 +430,9 @@ services:
       - OPENVPN_CUSTOM_CONFIG=/gluetun/premiumize.ovpn
       - OPENVPN_USER=${PREMIUMIZE_VPN_USER:-}
       - OPENVPN_PASSWORD=${PREMIUMIZE_VPN_PASSWORD:-}
-      # Damit Jellyfin & Co. aus arr_net den Threadfin-Port erreichen, ohne
-      # dass diese Antworten durchs VPN müssen:
-      - FIREWALL_INPUT_PORTS=34400
+      # Damit arr_net (Jellyfin/Sonarr) die Insassen-Ports erreicht, ohne dass
+      # diese Antworten durchs VPN müssen:
+      - FIREWALL_INPUT_PORTS=34400,8080
       - FIREWALL_OUTBOUND_SUBNETS=${ARR_NET_SUBNET:-172.18.0.0/16}
     networks:
       - arr_net
@@ -436,6 +442,29 @@ services:
       timeout: 15s
       retries: 5
       start_period: 40s
+
+  # qBittorrent — Torrent-Client, läuft im gluetun-Netz-Stack (aller Traffic
+  # durchs VPN). Aus arr_net/Sonarr erreichbar als http://gluetun:8080.
+  # Nutzt dasselbe /data wie Sonarr → Hardlinks von /data/downloads/torrents
+  # nach /data/media. Erst-Setup + Sonarr-Verdrahtung: bootstrap/12-torrent.sh.
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:5.1.2
+    container_name: qbittorrent
+    restart: unless-stopped
+    profiles:
+      - torrent
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    environment:
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
+      - TZ=${TZ:-Europe/Berlin}
+      - WEBUI_PORT=8080
+    volumes:
+      - qbittorrent_data:/config
+      - ${DATA}:/data
 
   threadfin:
     image: fyb3roptik/threadfin@sha256:863fb0c2945617b4aa48b79eaa655954df72d68fbee6e49a1465934ceb3f057e

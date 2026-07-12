@@ -67,6 +67,7 @@ APPDATA_DIRS=(
   threadfin/conf
   threadfin/temp
   gluetun
+  qbittorrent
   adguardhome/work
   adguardhome/conf
   jellyfin/config
@@ -93,9 +94,11 @@ DATA_DIRS=(
   media/movies
   media/tv
   media/anime
+  media/hentai
   downloads/usenet/incomplete
   downloads/usenet/complete/movies
   downloads/usenet/complete/tv
+  downloads/torrents/incomplete
 )
 
 for dir in "${DATA_DIRS[@]}"; do
