@@ -3,6 +3,10 @@
 .env.runtime
 env.backup
 
+# VPN-Configs (enthalten Keys/Zertifikate) — nur auf den Server, nie ins Repo
+*.ovpn
+*.conf.wg
+
 # Backups
 backups/
 
