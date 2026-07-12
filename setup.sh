@@ -222,9 +222,10 @@ write_if_missing "${HP_CONFIG}/widgets.yaml" "---
 "
 
 write_if_missing "${HP_CONFIG}/docker.yaml" "---
-# Enables container status widgets from the Docker socket
+# Container-Status über den docker-socket-proxy (kein root-Socket im Homepage-Container)
 my-docker:
-  socket: /var/run/docker.sock
+  host: dockerproxy
+  port: 2375
 "
 
 # ---------------------------------------------------------------------------

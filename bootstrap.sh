@@ -184,7 +184,8 @@ write_if_missing "${HP}/widgets.yaml" "---
 
 write_if_missing "${HP}/docker.yaml" "---
 my-docker:
-  socket: /var/run/docker.sock
+  host: dockerproxy
+  port: 2375
 "
 
 # ---------------------------------------------------------------------------

@@ -328,7 +328,6 @@ services:
       - "${HOMEPAGE_PORT:-3000}:3000"
     volumes:
       - homepage_data:/app/config
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - PUID=${PUID:-99}
       - PGID=${PGID:-100}
@@ -336,11 +335,25 @@ services:
       - HOMEPAGE_VAR_UNRAID_IP=${UNRAID_IP:-192.168.1.100}
       # Ohne diese Variable blockt Homepage ≥v0.234 fremde Hostnamen
       - HOMEPAGE_ALLOWED_HOSTS=${HOMEPAGE_ALLOWED_HOSTS:-*}
-    # Homepage läuft als PUID (99); der Docker-Socket gehört root:docker.
-    # Ohne Mitgliedschaft in der docker-Gruppe → EACCES beim Container-Status.
-    # GID auf dem Host ermitteln: stat -c %g /var/run/docker.sock
-    group_add:
-      - "${DOCKER_GID:-281}"
+    # Container-Status über dockerproxy (Homepage läuft als PUID 99 und kommt
+    # nicht an den root:docker-Socket; der Proxy löst das sauber & read-only).
+    depends_on:
+      - dockerproxy
+    networks:
+      - arr_net
+
+  # docker-socket-proxy — stellt Homepage eine schreibgeschützte Docker-API
+  # bereit (http://dockerproxy:2375), damit Homepage den Container-Status
+  # anzeigen kann, ohne den root-Socket direkt zu mounten.
+  dockerproxy:
+    image: ghcr.io/tecnativa/docker-socket-proxy:0.3.0
+    container_name: dockerproxy
+    restart: unless-stopped
+    environment:
+      - CONTAINERS=1   # nur Container lesen; alles andere bleibt gesperrt
+      - POST=0         # keine schreibenden Aufrufe
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - arr_net
 
