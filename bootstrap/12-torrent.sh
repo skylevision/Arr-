@@ -158,9 +158,17 @@ ensure_indexer() { # <schema-implementationName oder .definitionName-Regex> <Anz
   fi
 }
 
+# Anime/Hentai
 ensure_indexer "sukebei.nyaa.si" "sukebei.nyaa.si"
 ensure_indexer "Nyaa.si"         "Nyaa.si"
 ensure_indexer "Anidex"          "Anidex"
+# Allgemein (Filme/Serien + XXX-Sektion)
+ensure_indexer "1337x"           "1337x"
+ensure_indexer "The Pirate Bay"  "The Pirate Bay"
+# Reine Porn-Indexer (Scene)
+ensure_indexer "PornoTorrent"    "PornoTorrent"
+ensure_indexer "XXXClub"         "XXXClub"
+ensure_indexer "PornRips"        "PornRips"
 
 info "Stoße Prowlarr-App-Sync an ..."
 papi POST /command '{"name":"ApplicationIndexerSync"}' >/dev/null
