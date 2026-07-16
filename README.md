@@ -415,5 +415,5 @@ docker compose up -d
 | AdGuard DNS | 53 | bound to `UNRAID_IP` |
 | Jellyfin HTTP | 8096 | `JELLYFIN_PORT_HTTP` (8096) |
 | Jellyfin HTTPS | 8920 | `JELLYFIN_PORT_HTTPS` (8920) |
-| Jellyfin Discovery | 7359/udp | fixed (protocol port, apps auto-find the server on the LAN) |
+| Jellyfin Discovery | 7359/udp | fixed — `jellyfin-discovery` relay on the host network (apps auto-find the server on the LAN) |
 | Homepage | 3000 | `HOMEPAGE_PORT` (3000) |
