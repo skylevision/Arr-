@@ -300,8 +300,11 @@ services:
     ports:
       - "${JELLYFIN_PORT_HTTP:-8096}:8096"
       - "${JELLYFIN_PORT_HTTPS:-8920}:8920"
-      # DLNA/Auto-Discovery bewusst aus (kollidiert mit Unraid-Diensten):
-      # - "7359:7359/udp"
+      # Auto-Discovery: Jellyfin-Apps im LAN finden den Server automatisch
+      # (UDP-Broadcast "Who is JellyfinServer?", Antwort = PublishedServerUrl).
+      # Port ist protokollfest 7359, daher nicht konfigurierbar.
+      - "7359:7359/udp"
+      # DLNA/SSDP bewusst aus (kollidiert mit Unraid-Diensten):
       # - "1900:1900/udp"
     volumes:
       - jellyfin_config:/config

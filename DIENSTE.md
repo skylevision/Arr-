@@ -23,6 +23,11 @@ lokalen DNS verteilt (Einrichtung: siehe unten).
 > `seerr:5055` usw. — die Fritz!Box verteilt `fritz.box` als Suchdomäne.
 > (Beim allerersten Mal fragt Chrome evtl. „Meintest du http://jellyfin:8096?" — einmal bestätigen.)
 
+> **Jellyfin-Apps:** In der Jellyfin-App (Handy/TV) muss gar keine Adresse getippt werden —
+> der Server wird im Heimnetz automatisch gefunden (Auto-Discovery, UDP 7359) und erscheint
+> beim Start der App unter „Server auswählen". Klappt nur im LAN/WLAN, nicht über Tailscale;
+> unterwegs die Adresse aus der [Freunde-Anleitung](FREUNDE_ANLEITUNG.md) verwenden.
+
 ## DNS-Auflösung — wie es funktioniert
 
 ```

@@ -437,7 +437,7 @@ Nach dem Setup: Web-UI unter `http://<ip>:8081`
 |---|---|---|---|
 | `8096` | `8096` | TCP | Web-UI / API |
 | `8920` | `8920` | TCP | HTTPS (optional) |
-| `7359` | `7359` | UDP | Auto-Discovery *(weglassen — oft Konflikt mit Unraid)* |
+| `7359` | `7359` | UDP | Auto-Discovery — Jellyfin-Apps im LAN finden den Server automatisch |
 | `1900` | `1900` | UDP | DLNA *(weglassen — oft Konflikt mit Unraid)* |
 
 **Paths:**
