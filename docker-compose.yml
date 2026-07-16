@@ -23,7 +23,7 @@
 #   1. cp .env.example .env  &&  .env ausfüllen
 #   2. bash bootstrap.sh      (Ordner, Netzwerk, Start, Health-Wait, API-Config)
 # ============================================================
-# Image-Tags sind FEST GEPINNT (Stand 2026-07-12, gegen Registry
+# Image-Tags sind FEST GEPINNT (Stand 2026-07-16, gegen Registry
 # verifiziert). Update = Tag hier bumpen, committen, `docker compose up -d`.
 # ============================================================
 
@@ -113,7 +113,7 @@ services:
   # Auth: TS_AUTHKEY in .env (tskey-auth-…) oder interaktiv via docker logs.
   # ==========================================================================
   tailscale:
-    image: tailscale/tailscale:v1.98.8
+    image: tailscale/tailscale:v1.98.9
     container_name: tailscale
     hostname: ${TS_HOSTNAME:-arr-stack}
     restart: unless-stopped
@@ -166,7 +166,7 @@ services:
   # PROWLARR — Indexer-Manager (Single Source of Truth, synct zu Radarr/Sonarr)
   # ==========================================================================
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:2.4.0.5397-ls153
+    image: lscr.io/linuxserver/prowlarr:2.4.0.5397-ls154
     container_name: prowlarr
     <<: *common
     ports:
@@ -186,7 +186,7 @@ services:
   # RADARR — Filme
   # ==========================================================================
   radarr:
-    image: lscr.io/linuxserver/radarr:6.2.1.10461-ls310
+    image: lscr.io/linuxserver/radarr:6.3.0.10514-ls311
     container_name: radarr
     <<: *common
     ports:
@@ -238,7 +238,7 @@ services:
   # BAZARR — Untertitel (braucht nur die fertigen Medien, kein /downloads)
   # ==========================================================================
   bazarr:
-    image: lscr.io/linuxserver/bazarr:v1.6.0-ls354
+    image: lscr.io/linuxserver/bazarr:v1.6.0-ls355
     container_name: bazarr
     <<: *common
     ports:
@@ -363,7 +363,7 @@ services:
   # lokale HTTP-URL; für Bitwarden-Clients später VW_DOMAIN auf HTTPS setzen.
   # ==========================================================================
   vaultwarden:
-    image: vaultwarden/server:1.35.4
+    image: vaultwarden/server:1.36.0
     container_name: vaultwarden
     restart: unless-stopped
     profiles:
@@ -395,7 +395,7 @@ services:
   # zeigen: Heimnetz → Netzwerk → Netzwerkeinstellungen → IPv4 → lokaler DNS.
   # ==========================================================================
   adguardhome:
-    image: adguard/adguardhome:v0.107.77
+    image: adguard/adguardhome:v0.107.78
     container_name: adguardhome
     restart: unless-stopped
     ports:
