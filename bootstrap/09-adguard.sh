@@ -86,6 +86,21 @@ agapi POST /control/dns_config "$(jq -n --arg d "$DOMAIN" --arg r "$ROUTER" '{
 success "Upstreams gesetzt."
 
 # ---------------------------------------------------------------------------
+# Ratelimit-Whitelist: Der Server selbst muss vom per-Client-Limit (20 qps)
+# ausgenommen sein — `docker compose pull` feuert DNS-Bursts über dem Limit,
+# sonst schlagen Image-Pulls auf dem Host mit i/o timeout fehl.
+# ---------------------------------------------------------------------------
+info "Nehme ${UNRAID_IP} vom DNS-Ratelimit aus ..."
+WHITELIST="$(agapi GET /control/dns_info | jq -c '.ratelimit_whitelist // []')"
+if echo "$WHITELIST" | jq -e --arg ip "$UNRAID_IP" 'index($ip)' >/dev/null; then
+  success "Ratelimit-Whitelist enthält ${UNRAID_IP} bereits."
+else
+  agapi POST /control/dns_config "$(jq -n --arg ip "$UNRAID_IP" --argjson wl "$WHITELIST" \
+    '{ratelimit_whitelist: (($wl + [$ip]) | unique)}')" >/dev/null
+  success "Ratelimit-Whitelist um ${UNRAID_IP} ergänzt."
+fi
+
+# ---------------------------------------------------------------------------
 # Rewrites: <dienst>.<domain> → UNRAID_IP (abgleichen, nicht duplizieren)
 # ---------------------------------------------------------------------------
 info "Stelle DNS-Rewrites sicher (*.${DOMAIN} → ${UNRAID_IP}) ..."
