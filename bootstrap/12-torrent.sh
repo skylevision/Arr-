@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # ============================================================
-# 12-torrent.sh — Torrent-Weg (Anime/Hentai) einrichten
+# 12-torrent.sh — Torrent-Weg (Anime) einrichten
 #
 #   - qBittorrent (läuft im gluetun-Netz-Stack, aller Traffic durchs VPN):
 #     WebUI-Auth-Bypass für arr_net + LAN, Save-/Temp-Pfade, Kategorie
 #   - qBittorrent als Download-Client in Sonarr (Torrent)
-#   - Root-Folder /data/media/hentai in Sonarr (getrennte Bibliothek)
-#   - Indexer in Prowlarr: sukebei.nyaa.si, Nyaa.si, Anidex → Sync zu Sonarr
+#   - Indexer in Prowlarr: Nyaa.si, Anidex → Sync zu Sonarr
 #
 # Läuft nur mit aktivem torrent-Profil (qBittorrent up). Sonst wird sauber
 # übersprungen — ein normaler bootstrap.sh-Lauf darf nicht scheitern.
@@ -123,17 +122,6 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Sonarr: Root-Folder für die getrennte Hentai-Bibliothek
-# ---------------------------------------------------------------------------
-HROOT="/data/media/hentai"
-if ! sapi GET /rootfolder | jq -e --arg p "$HROOT" '.[] | select(.path==$p)' >/dev/null; then
-  sapi POST /rootfolder "{\"path\":\"${HROOT}\"}" >/dev/null
-  success "Sonarr: Root-Folder ${HROOT} angelegt."
-else
-  success "Sonarr: Root-Folder ${HROOT} vorhanden."
-fi
-
-# ---------------------------------------------------------------------------
 # Prowlarr: öffentliche Torrent-Indexer (keine Zugangsdaten nötig)
 # ---------------------------------------------------------------------------
 P="http://localhost:${PROWLARR_PORT:-9696}/api/v1"
@@ -154,7 +142,7 @@ if [[ "$(docker inspect -f '{{.State.Running}}' flaresolverr 2>/dev/null)" == "t
     success "Prowlarr: FlareSolverr-Proxy vorhanden."
   fi
 else
-  warn "flaresolverr läuft nicht — Cloudflare-Indexer (1337x, XXXClub) könnten fehlschlagen."
+  warn "flaresolverr läuft nicht — Cloudflare-Indexer (1337x) könnte fehlschlagen."
 fi
 
 ensure_indexer() { # <schema-name> <anzeigename> [tag-id für FlareSolverr]
@@ -178,18 +166,13 @@ ensure_indexer() { # <schema-name> <anzeigename> [tag-id für FlareSolverr]
   fi
 }
 
-# Anime/Hentai
-ensure_indexer "sukebei.nyaa.si" "sukebei.nyaa.si"
+# Anime
 ensure_indexer "Nyaa.si"         "Nyaa.si"
 ensure_indexer "Anidex"          "Anidex"
-# Allgemein (Filme/Serien + XXX-Sektion) — 1337x hinter Cloudflare → FlareSolverr
+# Allgemein (Filme/Serien) — 1337x hinter Cloudflare → FlareSolverr
 ensure_indexer "1337x"           "1337x"          "$FS_TAG"
 ensure_indexer "The Pirate Bay"  "The Pirate Bay"
-# Reine Porn-Indexer (Scene) — XXXClub hinter Cloudflare → FlareSolverr
-ensure_indexer "PornoTorrent"    "PornoTorrent"
-ensure_indexer "XXXClub"         "XXXClub"         "$FS_TAG"
-ensure_indexer "PornRips"        "PornRips"
 
 info "Stoße Prowlarr-App-Sync an ..."
 papi POST /command '{"name":"ApplicationIndexerSync"}' >/dev/null
-success "Torrent-Setup abgeschlossen (qBittorrent + Sukebei/Nyaa/Anidex → Sonarr)."
+success "Torrent-Setup abgeschlossen (qBittorrent + Nyaa/Anidex → Sonarr)."
