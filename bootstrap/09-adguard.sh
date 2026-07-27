@@ -4,18 +4,21 @@
 #
 # - schließt den Ersteinrichtungs-Wizard per API ab (Web auf
 #   Container-Port 80, DNS auf 53, Login aus .env)
-# - Upstreams: DoH (Cloudflare/Google) + Weiterleitung der
-#   lokalen Domain (fritz.box) und PTR-Anfragen an den Router,
-#   damit Router- und Geräte-Namen weiter funktionieren
+# - Upstreams: DoH (Cloudflare/Google) + PTR-Anfragen (Reverse-DNS)
+#   und die Router-Domain (ROUTER_DOMAIN, z. B. fritz.box) an den
+#   Router weitergeleitet
 # - DNS-Rewrites: <dienst>.<LOCAL_DOMAIN> → UNRAID_IP, damit
-#   z. B. jellyfin.fritz.box:8096 im Browser funktioniert
+#   z. B. jellyfin.home:8096 im Browser funktioniert
+# - Ratelimit-Whitelist: Server (UNRAID_IP) UND Router (ROUTER_IP) —
+#   im Vermittler-Modell kommen alle Anfragen von der Fritz!Box
 #
 # Idempotent: Wizard nur wenn unkonfiguriert, Rewrites werden
 # per Liste abgeglichen (update statt Duplikat).
 #
-# Danach EINMALIG im Router eintragen (Fritz!Box):
-#   Heimnetz → Netzwerk → Netzwerkeinstellungen →
-#   IPv4-Einstellungen → Lokaler DNS-Server = ${UNRAID_IP}
+# Betrieb als DNS-Vermittler (Fritz!Box als Client-DNS, AdGuard als
+# Upstream) — Fallback bleibt bei AdGuard-Ausfall. Router-Schritte
+# stehen in DIENSTE.md (Upstream = ${UNRAID_IP}, Rebind-Ausnahme
+# für ${LOCAL_DOMAIN:-home}, öffentlicher Zweit-DNS als Fallback).
 # ============================================================
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -25,8 +28,9 @@ require_var ADGUARD_PASSWORD
 
 AG="http://localhost:${ADGUARD_WEBUI_PORT:-8081}"
 AG_SETUP="http://localhost:${ADGUARD_SETUP_PORT:-3001}"
-DOMAIN="${LOCAL_DOMAIN:-fritz.box}"
+DOMAIN="${LOCAL_DOMAIN:-home}"
 ROUTER="${ROUTER_IP:-192.168.178.1}"
+ROUTER_DOMAIN="${ROUTER_DOMAIN:-fritz.box}"
 
 # Dienste, die einen Namen bekommen (Rewrite → UNRAID_IP)
 REWRITE_NAMES=(jellyfin seerr radarr sonarr prowlarr bazarr sabnzbd homepage adguard unraid)
@@ -72,8 +76,8 @@ fi
 # ---------------------------------------------------------------------------
 # Upstreams: DoH + lokale Domain & Reverse-DNS an den Router weiterleiten
 # ---------------------------------------------------------------------------
-info "Setze DNS-Upstreams (DoH + ${DOMAIN} → ${ROUTER}) ..."
-agapi POST /control/dns_config "$(jq -n --arg d "$DOMAIN" --arg r "$ROUTER" '{
+info "Setze DNS-Upstreams (DoH + ${ROUTER_DOMAIN} → ${ROUTER}) ..."
+agapi POST /control/dns_config "$(jq -n --arg d "$ROUTER_DOMAIN" --arg r "$ROUTER" '{
   upstream_dns: [
     "https://dns.cloudflare.com/dns-query",
     "https://dns.google/dns-query",
@@ -86,18 +90,22 @@ agapi POST /control/dns_config "$(jq -n --arg d "$DOMAIN" --arg r "$ROUTER" '{
 success "Upstreams gesetzt."
 
 # ---------------------------------------------------------------------------
-# Ratelimit-Whitelist: Der Server selbst muss vom per-Client-Limit (20 qps)
-# ausgenommen sein — `docker compose pull` feuert DNS-Bursts über dem Limit,
-# sonst schlagen Image-Pulls auf dem Host mit i/o timeout fehl.
+# Ratelimit-Whitelist: Server (UNRAID_IP) UND Router (ROUTER_IP) vom
+# per-Client-Limit (20 qps) ausnehmen.
+#  - Server: `docker compose pull` feuert DNS-Bursts über dem Limit,
+#    sonst schlagen Image-Pulls auf dem Host mit i/o timeout fehl.
+#  - Router: im Vermittler-Modus kommen ALLE Haushalts-Anfragen von der
+#    Fritz!Box — ohne Ausnahme würde das ganze Heimnetz gedrosselt.
 # ---------------------------------------------------------------------------
-info "Nehme ${UNRAID_IP} vom DNS-Ratelimit aus ..."
+info "Nehme ${UNRAID_IP} + ${ROUTER} vom DNS-Ratelimit aus ..."
 WHITELIST="$(agapi GET /control/dns_info | jq -c '.ratelimit_whitelist // []')"
-if echo "$WHITELIST" | jq -e --arg ip "$UNRAID_IP" 'index($ip)' >/dev/null; then
-  success "Ratelimit-Whitelist enthält ${UNRAID_IP} bereits."
+if echo "$WHITELIST" | jq -e --arg a "$UNRAID_IP" --arg b "$ROUTER" \
+     'index($a) and index($b)' >/dev/null; then
+  success "Ratelimit-Whitelist enthält ${UNRAID_IP} + ${ROUTER} bereits."
 else
-  agapi POST /control/dns_config "$(jq -n --arg ip "$UNRAID_IP" --argjson wl "$WHITELIST" \
-    '{ratelimit_whitelist: (($wl + [$ip]) | unique)}')" >/dev/null
-  success "Ratelimit-Whitelist um ${UNRAID_IP} ergänzt."
+  agapi POST /control/dns_config "$(jq -n --arg a "$UNRAID_IP" --arg b "$ROUTER" --argjson wl "$WHITELIST" \
+    '{ratelimit_whitelist: (($wl + [$a, $b]) | unique)}')" >/dev/null
+  success "Ratelimit-Whitelist um ${UNRAID_IP} + ${ROUTER} ergänzt."
 fi
 
 # ---------------------------------------------------------------------------
@@ -122,4 +130,4 @@ for name in "${REWRITE_NAMES[@]}"; do
   fi
 done
 
-success "AdGuard konfiguriert. Router-Schritt nicht vergessen: lokaler DNS-Server = ${UNRAID_IP}."
+success "AdGuard konfiguriert. Router-Schritte nicht vergessen (Vermittler-Modus): Upstream-DNS = ${UNRAID_IP} + öffentlicher Fallback, Rebind-Ausnahme für '${DOMAIN}'. Details in DIENSTE.md."

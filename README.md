@@ -38,7 +38,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 | **Seerr** | Media request portal — supports Jellyfin, Plex, Emby | 5055 |
 | **Vaultwarden** | Self-hosted Bitwarden-compatible password manager *(optional, profile `vaultwarden`)* | 8082 |
 | **Threadfin** | IPTV proxy — Live TV for Jellyfin *(optional, profile `iptv`)* | 34400 |
-| **AdGuard Home** | Local DNS (service names like `jellyfin.fritz.box`) & network-wide ad blocker | 8081 (UI), 53 (DNS) |
+| **AdGuard Home** | Local DNS (service names like `jellyfin.home`) & network-wide ad blocker | 8081 (UI), 53 (DNS) |
 | **Jellyfin** | Media server | 8096 |
 | **Homepage** | Unified dashboard | 3000 |
 
@@ -297,22 +297,26 @@ Once authenticated, all services are reachable at `http://<tailscale-ip>:<port>`
 
 `bootstrap/09-adguard.sh` configures everything automatically (no setup wizard needed):
 admin login from `.env` (`ADGUARD_USER` / `ADGUARD_PASSWORD`), DoH upstreams, forwarding
-of `LOCAL_DOMAIN` + reverse DNS to your router, and **DNS rewrites** so every service is
+of `ROUTER_DOMAIN` + reverse DNS to your router, a ratelimit exemption for the server **and
+the router**, and **DNS rewrites** on `LOCAL_DOMAIN` (default `home`) so every service is
 reachable by name:
 
 | Name | URL |
 |---|---|
-| `jellyfin.fritz.box` | `http://jellyfin.fritz.box:8096` |
-| `seerr.fritz.box` | `http://seerr.fritz.box:5055` |
-| `radarr.fritz.box` / `sonarr.fritz.box` | `:7878` / `:8989` |
+| `jellyfin.home` | `http://jellyfin.home:8096` |
+| `seerr.home` | `http://seerr.home:5055` |
+| `radarr.home` / `sonarr.home` | `:7878` / `:8989` |
 | `prowlarr` / `bazarr` / `sabnzbd` | `:9696` / `:6767` / `:8090` |
-| `homepage.fritz.box` | `http://homepage.fritz.box:3000` |
-| `adguard.fritz.box` / `unraid.fritz.box` | `:8081` / Unraid UI |
+| `homepage.home` | `http://homepage.home:3000` |
+| `adguard.home` / `unraid.home` | `:8081` / Unraid UI |
 
-**One manual router step (Fritz!Box)**: *Heimnetz → Netzwerk → Netzwerkeinstellungen →
-IPv4-Einstellungen → **Lokaler DNS-Server** = `<UNRAID_IP>`*. After that, all devices get
-their DNS from AdGuard via DHCP (reconnect Wi-Fi once). Because the Fritz!Box hands out
-`fritz.box` as DNS search domain, typing just `jellyfin:8096` in a browser works too.
+**Router setup (Fritz!Box) — resolver-forwarding model with fallback:** the Fritz!Box stays
+the clients' DNS and forwards to AdGuard, so an AdGuard/server outage no longer takes the
+whole network's DNS down. Set *Internet → Zugangsdaten → DNS-Server* to **preferred =
+`<UNRAID_IP>`** (AdGuard) + **alternate = `1.1.1.1`** (public fallback), reset *Heimnetz →
+Netzwerk → Netzwerkeinstellungen → IPv4 → Lokaler DNS-Server* back to the Fritz!Box default,
+and **add `home` to the DNS-rebind exceptions** (else the box drops AdGuard's private-IP
+answers for `*.home`). Full step-by-step + tests in [DIENSTE.md](DIENSTE.md).
 
 The AdGuard web UI is at `http://<ip>:8081` (`ADGUARD_WEBUI_PORT`).
 

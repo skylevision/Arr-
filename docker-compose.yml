@@ -407,10 +407,11 @@ services:
       start_period: 30s
 
   # ==========================================================================
-  # ADGUARD HOME — lokaler DNS: löst jellyfin.fritz.box & Co. auf die
+  # ADGUARD HOME — lokaler DNS: löst jellyfin.home & Co. auf die
   # Server-IP auf (Rewrites via bootstrap/09-adguard.sh) + Werbeblocker.
-  # Dafür muss im Router (Fritz!Box) der lokale DNS-Server auf ${UNRAID_IP}
-  # zeigen: Heimnetz → Netzwerk → Netzwerkeinstellungen → IPv4 → lokaler DNS.
+  # Vermittler-Modus: Fritz!Box bleibt Client-DNS und nutzt AdGuard als
+  # bevorzugten Upstream (+ öffentlicher Fallback). Router-Schritte +
+  # Rebind-Ausnahme für 'home': siehe DIENSTE.md.
   # ==========================================================================
   adguardhome:
     image: adguard/adguardhome:v0.107.78
@@ -502,8 +503,8 @@ services:
       - qbittorrent_data:/config
       - ${DATA}:/data
 
-  # FlareSolverr — löst Cloudflare-Challenges für Prowlarr-Indexer (1337x,
-  # XXXClub …). Kein VPN nötig; Prowlarr erreicht es als http://flaresolverr:8191.
+  # FlareSolverr — löst Cloudflare-Challenges für Prowlarr-Indexer (z. B.
+  # 1337x). Kein VPN nötig; Prowlarr erreicht es als http://flaresolverr:8191.
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:v3.5.0
     container_name: flaresolverr

@@ -22,7 +22,7 @@ require_var BAZARR_API_KEY
 require_var SEERR_API_KEY
 
 HP="${APPDATA}/homepage"
-D="${LOCAL_DOMAIN:-fritz.box}"
+D="${LOCAL_DOMAIN:-home}"
 [[ -d "$HP" ]] || error "${HP} existiert nicht — erst bootstrap.sh laufen lassen."
 
 # Jellyfin-Widget nur, wenn ein API-Key gesetzt ist (JELLYFIN_API_KEY in .env,

@@ -119,7 +119,7 @@ http://<unraid-ip>:34400/web
 ```
 oder via Tailscale / DNS-Name:
 ```
-http://<tailscale-ip>:34400/web     bzw.     http://threadfin.fritz.box:34400/web
+http://<tailscale-ip>:34400/web     bzw.     http://threadfin.home:34400/web
 ```
 
 Beim ersten Start erscheint der **Setup-Wizard** von Threadfin → durchklicken.
