@@ -89,7 +89,8 @@ sonarr:
               - DVD
               - WEBDL-480p
               - WEBRip-480p
-              - SDTV
+              # SDTV bewusst NICHT: liess 320p-HDTV-Schnipsel als "Fallback" zu.
+              # DVD/480p ist der Boden — darunter lohnt es sich nicht.
 
     custom_formats:
       ### HDR / DV — Scores aus dem Guide

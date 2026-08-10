@@ -272,7 +272,7 @@ Once authenticated, all services are reachable at `http://<tailscale-ip>:<port>`
 | Sonarr | `[German] 1080p + DVD` | **older series** — German in 1080p, DVD/SD as fallback |
 
 `[German] 1080p + DVD` is the only hand-written profile (all others are guide-backed
-by `trash_id`). Everything from Bluray-1080p down to SDTV sits in **one** quality group
+by `trash_id`). Everything from Bluray-1080p down to WEBRip-480p sits in **one** quality group
 `1080p → DVD`, so the custom format score decides — a German DVD release beats an
 English-only 1080p one, and as soon as a German 1080p release shows up, Sonarr upgrades
 to it. Assign it per series: *Series → Edit → Quality Profile*.

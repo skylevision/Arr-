@@ -925,7 +925,7 @@ legt Recyclarr in Sonarr zusätzlich das Profil **`[German] 1080p + DVD`** an
 
 | Feld | Wert |
 |---|---|
-| **Qualitäten** | Bluray/WEB/HDTV 1080p + 720p, Bluray-576p/480p, **DVD**, WEB 480p, SDTV |
+| **Qualitäten** | Bluray/WEB/HDTV 1080p + 720p, Bluray-576p/480p, **DVD**, WEB 480p |
 | **Gruppierung** | **alles in EINER Gruppe** (`1080p → DVD`) |
 | **Upgrade Until CF Score** | `35000` |
 | **Minimum CF Score** | `0` (englischer Fallback bleibt erlaubt) |
@@ -945,6 +945,10 @@ Weder Deutsch noch Englisch:                                          = -35.000 
 
 Sobald später ein deutsches 1080p-Release auftaucht, steigt der Score → Sonarr
 upgradet die DVD automatisch (Upgrade läuft bis 35000, also praktisch immer weiter).
+
+> **SDTV ist bewusst nicht dabei.** Mit SDTV im Profil zog Sonarr als „Fallback"
+> auch 320p-HDTV-Schnipsel (englisch, CF-Score 0 → formal erlaubt). DVD/480p ist
+> die Untergrenze — darunter lohnt sich der Platz nicht.
 
 **Zuweisen:** Serie öffnen → *Edit* → *Quality Profile* → `[German] 1080p + DVD`.
 Für mehrere Serien auf einmal: *Series → Mass Editor → Quality Profile*.
