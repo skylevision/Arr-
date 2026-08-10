@@ -3,7 +3,9 @@
 # 06-recyclarr.sh — Quality Profiles & Custom Formats (TRaSH)
 #
 # 1. Recyclarr-Sync: legt die German-DL-4K-Profile inkl. aller
-#    TRaSH Custom Formats in Radarr + Sonarr an (idempotent).
+#    TRaSH Custom Formats in Radarr + Sonarr an (idempotent) —
+#    dazu das handgeschriebene Sonarr-Profil "[German] 1080p + DVD"
+#    für ältere Serien (siehe recyclarr/recyclarr.yml).
 # 2. Räumt danach die alten, manuell gepflegten Custom Formats
 #    und das alte Profil "German DL 4k" ab — aber nur, wenn die
 #    neuen Profile nachweislich existieren und nichts sie nutzt.
@@ -74,4 +76,4 @@ cleanup_arr() {
 cleanup_arr "http://localhost:${RADARR_PORT:-7878}/api/v3" "$RADARR_API_KEY" "$RADARR_PROFILE" "Radarr" /movie
 cleanup_arr "http://localhost:${SONARR_PORT:-8989}/api/v3" "$SONARR_API_KEY" "$SONARR_PROFILE" "Sonarr" /series
 
-success "Quality Profiles & Custom Formats stehen (TRaSH German DL 4K)."
+success "Quality Profiles & Custom Formats stehen (TRaSH German DL 4K + [German] 1080p + DVD)."

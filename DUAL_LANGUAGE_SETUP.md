@@ -917,6 +917,40 @@ Beim Hinzufügen eines Films wählst du Profil + Root Folder:
 **Vorteil:** Einfach, ein Radarr reicht.
 **Nachteil:** Ein Film ist entweder 4K **oder** 1080p — nicht beides.
 
+### Option A+: Ältere Serien — „[German] 1080p + DVD"
+
+Für Serien, die es schlicht nicht in HD gibt (Klassiker, alte Krimis, 80er/90er-Serien),
+legt Recyclarr in Sonarr zusätzlich das Profil **`[German] 1080p + DVD`** an
+(definiert in `recyclarr/recyclarr.yml`, angelegt von `bootstrap/06-recyclarr.sh`).
+
+| Feld | Wert |
+|---|---|
+| **Qualitäten** | Bluray/WEB/HDTV 1080p + 720p, Bluray-576p/480p, **DVD**, WEB 480p, SDTV |
+| **Gruppierung** | **alles in EINER Gruppe** (`1080p → DVD`) |
+| **Upgrade Until CF Score** | `35000` |
+| **Minimum CF Score** | `0` (englischer Fallback bleibt erlaubt) |
+| **Scoring** | TRaSH-Skala, Score-Set `german` (German DL = 11000, German = 10000) |
+
+**Warum eine Gruppe?** Weil Sonarr sonst die höhere Qualitätsstufe immer gewinnen
+lässt — ein englisches 1080p würde also eine deutsche DVD schlagen. In einer Gruppe
+entscheidet der Custom-Format-Score:
+
+```
+Deutsch DL, 1080p Bluray (Tier 01):  11000 + 10000 + 650 + 50 + 2900  ≈ 24.600  ← Ziel
+Deutsch DL, 720p WEB (Tier 01):      11000 + 10000 +   5 + 2100       ≈ 23.100
+Deutsch, DVD:                                 10000                   ≈ 10.000  ← Fallback
+Englisch only, 1080p Bluray:                    650 +  50 + 1800      ≈  2.500
+Weder Deutsch noch Englisch:                                          = -35.000  ✗ geblockt
+```
+
+Sobald später ein deutsches 1080p-Release auftaucht, steigt der Score → Sonarr
+upgradet die DVD automatisch (Upgrade läuft bis 35000, also praktisch immer weiter).
+
+**Zuweisen:** Serie öffnen → *Edit* → *Quality Profile* → `[German] 1080p + DVD`.
+Für mehrere Serien auf einmal: *Series → Mass Editor → Quality Profile*.
+
+> Für Filme gibt es kein Gegenstück — sag Bescheid, wenn du dasselbe für Radarr willst.
+
 ### Option B: Zwei Radarr-Instanzen
 
 Ein Radarr für 1080p, ein zweites für 4K — derselbe Film kann in beiden

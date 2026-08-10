@@ -259,6 +259,24 @@ Once authenticated, all services are reachable at `http://<tailscale-ip>:<port>`
 
 - `/data/media/tv`
 
+### Quality Profiles (Recyclarr)
+
+`bootstrap/06-recyclarr.sh` syncs these profiles from `recyclarr/recyclarr.yml`:
+
+| App | Profile | Use for |
+|---|---|---|
+| Radarr | `[German] Remux + WEB 2160p` | movies, German DL in 4K |
+| Radarr | `[German] Anime HD Bluray + WEB` | anime movies |
+| Sonarr | `[German] UHD Remux + WEB` | series, German DL in 4K |
+| Sonarr | `[German] Anime HD Bluray + WEB` | anime (root folder `/data/media/anime`) |
+| Sonarr | `[German] 1080p + DVD` | **older series** — German in 1080p, DVD/SD as fallback |
+
+`[German] 1080p + DVD` is the only hand-written profile (all others are guide-backed
+by `trash_id`). Everything from Bluray-1080p down to SDTV sits in **one** quality group
+`1080p → DVD`, so the custom format score decides — a German DVD release beats an
+English-only 1080p one, and as soon as a German 1080p release shows up, Sonarr upgrades
+to it. Assign it per series: *Series → Edit → Quality Profile*.
+
 ### Bazarr
 
 1. Open Bazarr (`http://<ip>:6767`) → *Settings → Radarr / Sonarr*
