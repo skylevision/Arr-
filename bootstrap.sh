@@ -76,6 +76,8 @@ DATA_DIRS=(
   downloads/usenet/complete/movies
   downloads/usenet/complete/tv
   downloads/torrents/incomplete
+  downloads/torrents/sonarr   # qBit-Kategorie 'sonarr' (12-torrent.sh) — muss
+                              # existieren, sonst meldet Sonarr RemotePathMapping-Fehler
 )
 for dir in "${DATA_DIRS[@]}"; do
   mkdir -p "${DATA}/${dir}"
@@ -87,7 +89,8 @@ chown "${PUID}:${PGID}" "${DATA}" "${DATA}/media" "${DATA}/downloads" \
   "${DATA}/media/anime" \
   "${DATA}/downloads/usenet/incomplete" "${DATA}/downloads/usenet/complete" \
   "${DATA}/downloads/usenet/complete/movies" "${DATA}/downloads/usenet/complete/tv" \
-  "${DATA}/downloads/torrents" "${DATA}/downloads/torrents/incomplete"
+  "${DATA}/downloads/torrents" "${DATA}/downloads/torrents/incomplete" \
+  "${DATA}/downloads/torrents/sonarr"
 success "data:    ${DATA}"
 
 # ---------------------------------------------------------------------------

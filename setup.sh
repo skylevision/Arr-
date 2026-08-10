@@ -98,6 +98,7 @@ DATA_DIRS=(
   downloads/usenet/complete/movies
   downloads/usenet/complete/tv
   downloads/torrents/incomplete
+  downloads/torrents/sonarr
 )
 
 for dir in "${DATA_DIRS[@]}"; do
