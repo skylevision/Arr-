@@ -597,3 +597,41 @@ docker exec tailscale tailscale status
 # Im Terminal — Stick auf zweiten Stick spiegeln:
 rsync -av /boot/ /mnt/backup-usb/
 ```
+
+---
+
+## Anhang D: Systemlog dauerhaft speichern (Absturzdiagnose)
+
+Unraid hält `/var/log/syslog` **nur im RAM**. Nach einem Absturz oder harten
+Neustart ist das Log weg — also genau dann, wenn man die Ursache bräuchte.
+`scripts/persistent-syslog.sh` spiegelt das Systemlog deshalb zusätzlich auf die
+NVMe (nicht auf den USB-Stick, das schont ihn) und rotiert es automatisch:
+täglich, komprimiert, nach 14 Tagen gelöscht.
+
+**Einrichten:**
+
+```bash
+cp scripts/persistent-syslog.sh /boot/config/persistent-syslog.sh
+bash /boot/config/persistent-syslog.sh          # sofort aktivieren
+```
+
+Damit es einen Reboot übersteht, in `/boot/config/go` **vor** der Zeile
+`/usr/local/sbin/emhttp` ergänzen:
+
+```bash
+bash /boot/config/persistent-syslog.sh &
+```
+
+Das `&` ist wichtig: Das go-Script läuft vor dem Array-Start, das Skript wartet
+im Hintergrund darauf, dass der Cache gemountet ist. Auf dem Boot-Stick (FAT32)
+gibt es kein Ausführungsrecht — deshalb immer mit `bash …` aufrufen.
+
+**Log lesen:**
+
+```bash
+less /mnt/cache/appdata/syslog/syslog.log            # aktuelles Log
+zless /mnt/cache/appdata/syslog/syslog.log.2.gz      # ältere, rotierte Logs
+```
+
+Nach einem unerwarteten Neustart lohnt der Blick auf die letzten Zeilen vor dem
+Abbruch — dort stehen Kernel-Meldungen, Speicherfehler oder Überhitzung.

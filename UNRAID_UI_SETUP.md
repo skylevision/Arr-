@@ -593,6 +593,21 @@ Genau dieselbe Reihenfolge wie bei der Compose-Installation:
 ⑬ Vaultwarden → Account anlegen → Admin-Panel → Signups deaktivieren
 ```
 
+> **Wichtig bei Schritt ⑨ (Jellyfin-Bibliotheken):** Jellyfin mountet
+> `/data/media` **schreibgeschützt**. In den Bibliotheks-Einstellungen müssen
+> deshalb alle Optionen aus bleiben, die neben die Videodateien schreiben wollen:
+>
+> - „Metadaten in Medienordner speichern" (`SaveLocalMetadata`) → **aus**
+> - „NFO"-Metadaten-Speicherung (`MetadataSavers`) → **leer**
+> - Bei Trickplay: „Trickplay-Bilder bei den Medien speichern" → **aus**
+>   (Erweitert → Trickplay: „Hardware-Beschleunigung" dagegen **an**, der N150
+>   hat QuickSync)
+>
+> Sonst scheitert Jellyfin bei jedem Bibliotheksscan mit
+> `Read-only file system` — und wiederholt die Arbeit endlos. Bei Trickplay
+> bedeutet das eine dauerhafte 4K-Softwaredekodierung auf allen CPU-Kernen,
+> deren Ergebnis anschließend verworfen wird.
+
 > Für die detaillierte Konfiguration jedes Dienstes:
 > → Hauptanleitung im [README.md](README.md) unter „First-Time Configuration"
 
