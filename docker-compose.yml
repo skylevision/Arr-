@@ -153,6 +153,9 @@ services:
     volumes:
       - sabnzbd_data:/config
       - ${DATA}:/data
+    dns:
+      - ${DOCKER_DNS:-192.168.178.1}
+      - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
     healthcheck:
@@ -173,6 +176,9 @@ services:
       - "${PROWLARR_PORT:-9696}:9696"
     volumes:
       - prowlarr_data:/config
+    dns:
+      - ${DOCKER_DNS:-192.168.178.1}
+      - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
     healthcheck:
@@ -194,6 +200,9 @@ services:
     volumes:
       - radarr_data:/config
       - ${DATA}:/data
+    dns:
+      - ${DOCKER_DNS:-192.168.178.1}
+      - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
     depends_on:
@@ -220,6 +229,9 @@ services:
     volumes:
       - sonarr_data:/config
       - ${DATA}:/data
+    dns:
+      - ${DOCKER_DNS:-192.168.178.1}
+      - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
     depends_on:
@@ -246,6 +258,9 @@ services:
     volumes:
       - bazarr_data:/config
       - ${DATA}/media:/data/media
+    dns:
+      - ${DOCKER_DNS:-192.168.178.1}
+      - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
     depends_on:
@@ -273,6 +288,9 @@ services:
       - "${SEERR_PORT:-5055}:5055"
     volumes:
       - seerr_data:/app/config
+    dns:
+      - ${DOCKER_DNS:-192.168.178.1}
+      - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
     depends_on:
@@ -317,6 +335,9 @@ services:
     # Unraid world-rw — kein group_add nötig, obwohl der Container als 99:100 läuft)
     devices:
       - /dev/dri:/dev/dri
+    dns:
+      - ${DOCKER_DNS:-192.168.178.1}
+      - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
 
@@ -357,6 +378,9 @@ services:
     # nicht an den root:docker-Socket; der Proxy löst das sauber & read-only).
     depends_on:
       - dockerproxy
+    dns:
+      - ${DOCKER_DNS:-192.168.178.1}
+      - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
 
@@ -372,6 +396,9 @@ services:
       - POST=0         # keine schreibenden Aufrufe
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    dns:
+      - ${DOCKER_DNS:-192.168.178.1}
+      - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
 
@@ -397,6 +424,9 @@ services:
       - "${VAULTWARDEN_PORT:-8082}:80"
     volumes:
       - vaultwarden_data:/data
+    dns:
+      - ${DOCKER_DNS:-192.168.178.1}
+      - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
     healthcheck:
@@ -427,6 +457,11 @@ services:
       - adguard_conf:/opt/adguardhome/conf
     cap_add:
       - NET_ADMIN
+    # AdGuard bekommt bewusst oeffentliche Resolver statt der Fritz!Box:
+    # die forwardet .home-Namen an AdGuard zurueck -> Aufloesungsschleife.
+    dns:
+      - ${ADGUARD_UPSTREAM_DNS:-9.9.9.9}
+      - ${ADGUARD_UPSTREAM_DNS2:-1.1.1.1}
     networks:
       - arr_net
 
@@ -471,6 +506,9 @@ services:
       # diese Antworten durchs VPN müssen:
       - FIREWALL_INPUT_PORTS=34400,8080
       - FIREWALL_OUTBOUND_SUBNETS=${ARR_NET_SUBNET:-172.18.0.0/16}
+    dns:
+      - ${DOCKER_DNS:-192.168.178.1}
+      - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
     healthcheck:
@@ -514,6 +552,9 @@ services:
     environment:
       - LOG_LEVEL=info
       - TZ=${TZ:-Europe/Berlin}
+    dns:
+      - ${DOCKER_DNS:-192.168.178.1}
+      - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
 
@@ -547,6 +588,9 @@ services:
     volumes:
       - lidarr_data:/config
       - ${DATA}:/data
+    dns:
+      - ${DOCKER_DNS:-192.168.178.1}
+      - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
 
@@ -561,5 +605,8 @@ services:
     volumes:
       - readarr_data:/config
       - ${DATA}:/data
+    dns:
+      - ${DOCKER_DNS:-192.168.178.1}
+      - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
