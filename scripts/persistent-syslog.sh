@@ -41,8 +41,12 @@ mkdir -p "$LOG_DIR"
 
 cat > /etc/rsyslog.d/99-persistent.conf <<EOF
 # Von persistent-syslog.sh erzeugt — Systemlog zusätzlich auf die NVMe spiegeln.
-# Das führende "-" puffert Schreibvorgänge (kein fsync pro Zeile).
-*.* -$LOG_FILE
+# BEWUSST ohne führendes "-": das würde die Schreibvorgänge puffern, und genau
+# die letzten Zeilen vor einem Freeze blieben dann im Puffer stecken — also die
+# einzigen, die man nach einem Absturz braucht. Beim Freeze vom 10.08.2026 endete
+# das Log mitten im Betrieb ohne jeden Hinweis. Das Aufkommen ist winzig
+# (~1700 Zeilen/Tag), der fsync pro Zeile fällt auf der NVMe nicht ins Gewicht.
+*.* $LOG_FILE
 EOF
 
 cat > /etc/logrotate.d/persistent-syslog <<EOF
