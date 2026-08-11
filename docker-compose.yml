@@ -113,7 +113,7 @@ services:
   # Auth: TS_AUTHKEY in .env (tskey-auth-…) oder interaktiv via docker logs.
   # ==========================================================================
   tailscale:
-    image: tailscale/tailscale:v1.98.9
+    image: tailscale/tailscale:v1.102.2
     container_name: tailscale
     hostname: ${TS_HOSTNAME:-arr-stack}
     restart: unless-stopped
@@ -145,7 +145,7 @@ services:
   # Download-Ordner (per API gesetzt): /data/downloads/usenet/{incomplete,complete}
   # ==========================================================================
   sabnzbd:
-    image: lscr.io/linuxserver/sabnzbd:5.0.4-ls262
+    image: lscr.io/linuxserver/sabnzbd:5.1.0-ls266
     container_name: sabnzbd
     <<: *common
     ports:
@@ -166,7 +166,7 @@ services:
   # PROWLARR — Indexer-Manager (Single Source of Truth, synct zu Radarr/Sonarr)
   # ==========================================================================
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:2.4.0.5397-ls154
+    image: lscr.io/linuxserver/prowlarr:2.5.2.5491-ls156
     container_name: prowlarr
     <<: *common
     ports:
@@ -186,7 +186,7 @@ services:
   # RADARR — Filme
   # ==========================================================================
   radarr:
-    image: lscr.io/linuxserver/radarr:6.3.0.10514-ls311
+    image: lscr.io/linuxserver/radarr:6.3.0.10514-ls313
     container_name: radarr
     <<: *common
     ports:
@@ -212,7 +212,7 @@ services:
   # SONARR — Serien
   # ==========================================================================
   sonarr:
-    image: lscr.io/linuxserver/sonarr:4.0.19.2979-ls319
+    image: lscr.io/linuxserver/sonarr:4.0.19.2979-ls321
     container_name: sonarr
     <<: *common
     ports:
@@ -238,7 +238,7 @@ services:
   # BAZARR — Untertitel (braucht nur die fertigen Medien, kein /downloads)
   # ==========================================================================
   bazarr:
-    image: lscr.io/linuxserver/bazarr:v1.6.0-ls355
+    image: lscr.io/linuxserver/bazarr:v1.6.0-ls357
     container_name: bazarr
     <<: *common
     ports:
@@ -264,7 +264,7 @@ services:
   # SEERR — Media-Request-Portal (läuft als interner node-User, kein PUID/PGID)
   # ==========================================================================
   seerr:
-    image: seerr/seerr:v3.3.0
+    image: seerr/seerr:v3.4.1
     container_name: seerr
     restart: unless-stopped
     environment:
@@ -364,7 +364,7 @@ services:
   # bereit (http://dockerproxy:2375), damit Homepage den Container-Status
   # anzeigen kann, ohne den root-Socket direkt zu mounten.
   dockerproxy:
-    image: ghcr.io/tecnativa/docker-socket-proxy:v0.4.2
+    image: ghcr.io/tecnativa/docker-socket-proxy:v0.5.0
     container_name: dockerproxy
     restart: unless-stopped
     environment:
@@ -381,7 +381,7 @@ services:
   # lokale HTTP-URL; für Bitwarden-Clients später VW_DOMAIN auf HTTPS setzen.
   # ==========================================================================
   vaultwarden:
-    image: vaultwarden/server:1.36.0
+    image: vaultwarden/server:1.37.1
     container_name: vaultwarden
     restart: unless-stopped
     profiles:
@@ -445,7 +445,7 @@ services:
   # Die Ports der Insassen werden HIER veröffentlicht (sie haben keinen eigenen
   # Netzwerk-Namen mehr → aus arr_net erreichbar als http://gluetun:<port>).
   gluetun:
-    image: qmcgaw/gluetun@sha256:b0ee2135e6ba52ad3f102aae9663707cd1c9531485117067a380d3b2b6dd991d
+    image: qmcgaw/gluetun:v3.41.3
     container_name: gluetun
     restart: unless-stopped
     profiles:
@@ -485,7 +485,7 @@ services:
   # Nutzt dasselbe /data wie Sonarr → Hardlinks von /data/downloads/torrents
   # nach /data/media. Erst-Setup + Sonarr-Verdrahtung: bootstrap/12-torrent.sh.
   qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:5.2.3_v2.0.13-ls468
+    image: lscr.io/linuxserver/qbittorrent:5.2.3_v2.0.14-ls471
     container_name: qbittorrent
     restart: unless-stopped
     profiles:
