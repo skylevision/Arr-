@@ -104,6 +104,19 @@ if curl -fsS -m 5 "${QBIT}/api/v2/app/version" >/dev/null 2>&1; then
     && success "qBittorrent: Seeding begrenzt (Ratio ${QBIT_MAX_RATIO:-2.0} / ${QBIT_MAX_SEED_DAYS:-7} Tage → pausieren)." \
     || warn "qBittorrent: Share-Limits konnten nicht gesetzt werden."
 
+  # BitTorrent-Session fest an das Tunnel-Interface binden.
+  # Ohne diese Bindung wählt qBittorrent teils die Bridge-Adresse als Quelle:
+  # gemessen am 11.08.2026 hingen Tracker-Verbindungen mit Quelle 172.18.0.6
+  # (statt 10.8.0.x) in SYN_SENT. Gluetuns Killswitch hat sie zwar verworfen —
+  # aber Verlassen auf die Firewall allein ist eine Sicherung zu wenig.
+  # Mit tun0 als Bindung schlägt qBittorrent fehl statt am VPN vorbeizugehen,
+  # falls der Tunnel weg ist. Die WebUI bleibt erreichbar (eigener Listener).
+  IFACE_JSON="$(jq -nc --arg i "${QBIT_BIND_INTERFACE:-tun0}" \
+    '{current_network_interface:$i, current_interface_address:""}')"
+  curl -fsS --data-urlencode "json=${IFACE_JSON}" "${QBIT}/api/v2/app/setPreferences" >/dev/null 2>&1 \
+    && success "qBittorrent: an ${QBIT_BIND_INTERFACE:-tun0} gebunden (kein Traffic am VPN vorbei)." \
+    || warn "qBittorrent: Interface-Bindung konnte nicht gesetzt werden."
+
   success "qBittorrent konfiguriert (Auth-Bypass arr_net+LAN, Save-Pfade, Kategorie '${CAT}')."
 else
   warn "qBittorrent-WebUI nach Neustart nicht erreichbar — Logs prüfen: docker logs qbittorrent"
