@@ -89,6 +89,21 @@ done
 if curl -fsS -m 5 "${QBIT}/api/v2/app/version" >/dev/null 2>&1; then
   curl -fsS --data-urlencode "category=${CAT}" --data-urlencode "savePath=${CAT_PATH}" \
     "${QBIT}/api/v2/torrents/createCategory" >/dev/null 2>&1 || true
+
+  # Seeding begrenzen: Ratio ${QBIT_MAX_RATIO} ODER ${QBIT_MAX_SEED_DAYS} Tage -> pausieren.
+  # Warum: ein seedender Torrent muss im Download-Ordner liegen bleiben. Läuft
+  # währenddessen der Unraid-Mover, zerreißt er das Hardlink-Paar Download/Medien
+  # und aus einer Datei werden zwei echte Kopien (beobachtet 11.08.2026: 4 von 8
+  # Torrents hatten links=1). Ein begrenztes Seeding deckelt diesen Verschnitt.
+  # Gelöscht wird NICHT von qBittorrent, sondern von Sonarr
+  # (removeCompletedDownloads=true), sobald der Torrent pausiert ist — so geht
+  # das Entfernen sauber über die App inkl. Historie.
+  SHARE_JSON="$(jq -nc --argjson ratio "${QBIT_MAX_RATIO:-2.0}" --argjson mins "$(( ${QBIT_MAX_SEED_DAYS:-7} * 1440 ))" \
+    '{max_ratio_enabled:true, max_ratio:$ratio, max_seeding_time_enabled:true, max_seeding_time:$mins, max_ratio_act:0}')"
+  curl -fsS --data-urlencode "json=${SHARE_JSON}" "${QBIT}/api/v2/app/setPreferences" >/dev/null 2>&1 \
+    && success "qBittorrent: Seeding begrenzt (Ratio ${QBIT_MAX_RATIO:-2.0} / ${QBIT_MAX_SEED_DAYS:-7} Tage → pausieren)." \
+    || warn "qBittorrent: Share-Limits konnten nicht gesetzt werden."
+
   success "qBittorrent konfiguriert (Auth-Bypass arr_net+LAN, Save-Pfade, Kategorie '${CAT}')."
 else
   warn "qBittorrent-WebUI nach Neustart nicht erreichbar — Logs prüfen: docker logs qbittorrent"
