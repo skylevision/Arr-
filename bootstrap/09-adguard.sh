@@ -130,4 +130,46 @@ for name in "${REWRITE_NAMES[@]}"; do
   fi
 done
 
+# ---------------------------------------------------------------------------
+# Eigene Filterregeln: AAAA-Antworten für einzelne Domains unterdrücken.
+#
+# Manche Anbieter sind über IPv6 nur auf dem iPhone unbrauchbar: Windows fällt
+# nach ~300 ms still auf IPv4 zurück (Happy Eyeballs), iOS bleibt bei IPv6
+# hängen. Nachgemessen für eporner.com: alle v6-Endpunkte liefern von hier aus
+# sauber HTTP 200 — der Fehler liegt also auf der Gegenseite bzw. in iOS, wir
+# können ihn nur umgehen.
+#
+# NOERROR mit leerem Ergebnis (NODATA) statt Block: der Client weiß dann sofort
+# "hier gibt es kein IPv6" und nimmt IPv4, ohne in einen Timeout zu laufen.
+# Ein vorhandenes '@@'-Allowlist-Regel für dieselbe Domain stört nicht — eine
+# einfache Ausnahme hebt $dnsrewrite nicht auf (dafür bräuchte es
+# '@@||domain^$dnsrewrite').
+#
+# Gilt haushaltsweit: per-Client geht im Vermittler-Modus nicht, weil AdGuard
+# als Absender nur die Fritz!Box sieht.
+# ---------------------------------------------------------------------------
+AAAA_SUPPRESS_RULES=(
+  '||eporner.com^$dnstype=AAAA,dnsrewrite=NOERROR;;'
+)
+
+info "Stelle eigene Filterregeln sicher (AAAA-Unterdrückung) ..."
+USER_RULES="$(agapi GET /control/filtering/status | jq -c '.user_rules // []')"
+RULES_CHANGED=0
+
+for rule in "${AAAA_SUPPRESS_RULES[@]}"; do
+  if echo "$USER_RULES" | jq -e --arg r "$rule" 'index($r)' >/dev/null; then
+    success "Filterregel vorhanden: ${rule}"
+  else
+    USER_RULES="$(echo "$USER_RULES" | jq -c --arg r "$rule" '. + [$r]')"
+    RULES_CHANGED=1
+    success "Filterregel ergänzt: ${rule}"
+  fi
+done
+
+if (( RULES_CHANGED )); then
+  agapi POST /control/filtering/set_rules \
+    "$(jq -n --argjson r "$USER_RULES" '{rules: $r}')" >/dev/null
+  agapi POST /control/cache_clear >/dev/null 2>&1 || true
+fi
+
 success "AdGuard konfiguriert. Router-Schritte nicht vergessen (Vermittler-Modus): Upstream-DNS = ${UNRAID_IP} + öffentlicher Fallback, Rebind-Ausnahme für '${DOMAIN}'. Details in DIENSTE.md."
