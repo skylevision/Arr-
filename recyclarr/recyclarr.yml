@@ -37,6 +37,28 @@ radarr:
 
     quality_profiles:
       - trash_id: 79faa9943cef2f510b997b1f2a9f3ea6 # [German] Remux + WEB 2160p
+        # 1080p als FALLBACK unterhalb der 2160p-Gruppe (Abweichung vom Guide).
+        # Grund: Kleinere Filme erscheinen teils nie in 4K — ohne Fallback lädt
+        # Radarr dann gar nichts, weil es keine "nimm ersatzweise"-Logik gibt;
+        # ein Release ist entweder im Profil oder es wird abgelehnt.
+        # Die Reihenfolge ist entscheidend: 2160p steht OBEN, also nimmt Radarr
+        # 1080p nur mangels 4K und tauscht später automatisch hoch. Ein
+        # Downgrade ist ausgeschlossen — anders als beim Anime-Profil, wo 2160p
+        # komplett fehlte und deshalb als schlechteste Stufe galt (das hatte im
+        # Juli/August fünf Filme von 2160p auf 1080p heruntergezogen).
+        upgrade:
+          allowed: true
+          until_quality: "Merged QPs" # = die 2160p-Gruppe unten
+          until_score: 35000
+        qualities:
+          - name: "Merged QPs"
+            qualities:
+              - Remux-2160p
+              - WEBDL-2160p
+              - WEBRip-2160p
+          - name: Bluray-1080p
+          - name: WEBDL-1080p
+          - name: WEBRip-1080p
       - trash_id: bf3cc2e99ad9a804a9b0d0e538e1fbba # [German] Anime HD Bluray + WEB
 
     custom_formats:

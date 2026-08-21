@@ -4,7 +4,7 @@
 #
 #   - qBittorrent (läuft im gluetun-Netz-Stack, aller Traffic durchs VPN):
 #     WebUI-Auth-Bypass für arr_net + LAN, Save-/Temp-Pfade, Kategorie
-#   - qBittorrent als Download-Client in Sonarr (Torrent)
+#   - qBittorrent als Download-Client in Sonarr UND Radarr (Torrent)
 #   - Indexer in Prowlarr: Nyaa.si, Anidex → Sync zu Sonarr
 #
 # Läuft nur mit aktivem torrent-Profil (qBittorrent up). Sonst wird sauber
@@ -14,6 +14,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 require_var SONARR_API_KEY
+require_var RADARR_API_KEY
 require_var PROWLARR_API_KEY
 
 if [[ "$(docker inspect -f '{{.State.Running}}' qbittorrent 2>/dev/null)" != "true" ]]; then
@@ -25,6 +26,10 @@ QBIT="http://localhost:${QBIT_PORT:-8085}"
 LAN="${LAN_SUBNET:-192.168.178.0/24}"
 CAT="sonarr"
 CAT_PATH="/data/downloads/torrents/${CAT}"
+# Radarr braucht eine eigene Kategorie, sonst landen Filme im Serien-Ordner
+# und keine der beiden Apps räumt sie wieder ab.
+CAT_MOVIES="radarr"
+CAT_MOVIES_PATH="/data/downloads/torrents/${CAT_MOVIES}"
 
 # ---------------------------------------------------------------------------
 # qBittorrent: WebUI-Vorkonfiguration direkt in qBittorrent.conf.
@@ -89,6 +94,8 @@ done
 if curl -fsS -m 5 "${QBIT}/api/v2/app/version" >/dev/null 2>&1; then
   curl -fsS --data-urlencode "category=${CAT}" --data-urlencode "savePath=${CAT_PATH}" \
     "${QBIT}/api/v2/torrents/createCategory" >/dev/null 2>&1 || true
+  curl -fsS --data-urlencode "category=${CAT_MOVIES}" --data-urlencode "savePath=${CAT_MOVIES_PATH}" \
+    "${QBIT}/api/v2/torrents/createCategory" >/dev/null 2>&1 || true
 
   # Seeding begrenzen: Ratio ${QBIT_MAX_RATIO} ODER ${QBIT_MAX_SEED_DAYS} Tage -> pausieren.
   # Warum: ein seedender Torrent muss im Download-Ordner liegen bleiben. Läuft
@@ -150,6 +157,38 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Radarr: qBittorrent als Download-Client (Torrent)
+# ---------------------------------------------------------------------------
+# Ohne diesen Block hat Radarr nur SABnzbd. Prowlarr liefert aber auch
+# Torrent-Indexer — Radarr greift dann ein Torrent-Release, findet keinen
+# passenden Client und die Downloads bleiben mit "downloadClientUnavailable"
+# in der Queue stehen, ohne dass je etwas geladen wird.
+R="http://localhost:${RADARR_PORT:-7878}/api/v3"
+rapi() { arr_api "$1" "$R" "$RADARR_API_KEY" "$2" "${3:-}"; }
+
+# Gleiche Struktur wie oben, nur heißt das Kategorie-Feld hier movieCategory.
+patch_qbit_movies='.enable = true
+  | .name = "qBittorrent"
+  | .fields = (.fields | map(
+      if .name=="host" then .value="gluetun"
+      elif .name=="port" then .value=8080
+      elif .name=="useSsl" then .value=false
+      elif .name=="movieCategory" then .value=$cat
+      else . end))'
+
+EXISTING="$(rapi GET /downloadclient | jq '[.[] | select(.implementation=="QBittorrent")] | first // empty')"
+if [[ -n "$EXISTING" ]]; then
+  ID="$(echo "$EXISTING" | jq -r .id)"
+  rapi PUT "/downloadclient/${ID}" "$(echo "$EXISTING" | jq --arg cat "$CAT_MOVIES" "$patch_qbit_movies")" >/dev/null
+  success "Radarr: Download-Client qBittorrent aktualisiert."
+else
+  SCHEMA="$(rapi GET /downloadclient/schema | jq '[.[] | select(.implementation=="QBittorrent")] | first')"
+  [[ -n "$SCHEMA" && "$SCHEMA" != "null" ]] || error "QBittorrent-Schema in Radarr nicht gefunden."
+  rapi POST /downloadclient "$(echo "$SCHEMA" | jq --arg cat "$CAT_MOVIES" "$patch_qbit_movies")" >/dev/null
+  success "Radarr: Download-Client qBittorrent angelegt."
+fi
+
+# ---------------------------------------------------------------------------
 # Prowlarr: öffentliche Torrent-Indexer (keine Zugangsdaten nötig)
 # ---------------------------------------------------------------------------
 P="http://localhost:${PROWLARR_PORT:-9696}/api/v1"
@@ -203,4 +242,4 @@ ensure_indexer "The Pirate Bay"  "The Pirate Bay"
 
 info "Stoße Prowlarr-App-Sync an ..."
 papi POST /command '{"name":"ApplicationIndexerSync"}' >/dev/null
-success "Torrent-Setup abgeschlossen (qBittorrent + Nyaa/Anidex → Sonarr)."
+success "Torrent-Setup abgeschlossen (qBittorrent + Nyaa/Anidex → Sonarr & Radarr)."
