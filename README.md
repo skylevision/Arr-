@@ -41,6 +41,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 | **AdGuard Home** | Local DNS (service names like `jellyfin.home`) & network-wide ad blocker | 8081 (UI), 53 (DNS) |
 | **Jellyfin** | Media server | 8096 |
 | **Homepage** | Unified dashboard | 3000 |
+| **SWAG** | Reverse proxy — the only service reachable from the internet (TCP/UDP 443). Publishes Jellyfin as `tv.<domain>` and Seerr as `seer.<domain>` with a Let's Encrypt wildcard cert (DNS-01 via INWX). Everything else stays Tailscale-only. | 443 |
 
 ## Architecture
 
@@ -439,3 +440,4 @@ docker compose up -d
 | Jellyfin HTTPS | 8920 | `JELLYFIN_PORT_HTTPS` (8920) |
 | Jellyfin Discovery | 7359/udp | fixed — `jellyfin-discovery` relay on the host network (apps auto-find the server on the LAN) |
 | Homepage | 3000 | `HOMEPAGE_PORT` (3000) |
+| SWAG HTTPS | 443 | `SWAG_PORT_HTTPS` (443) — bound to `UNRAID_IP`, because Unraid's own nginx already holds `127.0.0.1:443`. TCP + UDP (HTTP/3). Port 80 is deliberately not published (DNS-01 challenge). |

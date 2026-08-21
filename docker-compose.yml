@@ -44,6 +44,14 @@ networks:
     external: true
     name: arr_net
 
+  # proxynet — trägt ausschließlich SWAG und die von außen per HTTPS
+  # erreichbaren Dienste (jellyfin, seerr). Bewusst NICHT external:
+  # Compose verwaltet es, damit kein arr-Container hineinrutscht.
+  # Aus proxynet ist Sonarr/Radarr/Prowlarr/qBittorrent nicht auflösbar.
+  proxynet:
+    name: proxynet
+    driver: bridge
+
 # ---------------------------------------------------------------------------
 # VOLUMES — benannte Volumes als Bind auf ${APPDATA}/<dienst>
 # ---------------------------------------------------------------------------
@@ -105,6 +113,9 @@ volumes:
   homepage_data:
     driver: local
     driver_opts: { type: none, o: bind, device: "${APPDATA}/homepage" }
+  swag_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${APPDATA}/swag" }
 
 # ---------------------------------------------------------------------------
 services:
@@ -293,6 +304,7 @@ services:
       - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
+      - proxynet   # für SWAG (seer.mmaeurer.de)
     depends_on:
       jellyfin:
         condition: service_healthy
@@ -340,6 +352,7 @@ services:
       - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
+      - proxynet   # für SWAG (tv.mmaeurer.de)
 
   # jellyfin-discovery — Auto-Discovery-Relay: Jellyfin-Apps finden den Server
   # im LAN per UDP-Broadcast auf 7359 ("Who is JellyfinServer?"). Broadcasts
@@ -401,6 +414,52 @@ services:
       - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
+
+  # ==========================================================================
+  # SWAG — Reverse Proxy (nginx + Let's Encrypt), einziger Weg von außen
+  # ==========================================================================
+  # Erreichbar von außen: tv.mmaeurer.de (Jellyfin), seer.mmaeurer.de (Seerr).
+  # Zertifikat: Wildcard *.mmaeurer.de per DNS-01 über INWX — Port 80 wird
+  # daher NICHT veröffentlicht.
+  #
+  # Port-Bindung an ${UNRAID_IP}: Unraids eigener nginx hält bereits
+  # 127.0.0.1:443, ein Bind auf 0.0.0.0 würde mit "address already in use"
+  # scheitern (gleiches Muster wie AdGuard auf Port 53).
+  #
+  # SWAG liegt allein in proxynet — Unraid-WebGUI, SSH und der arr-Stack
+  # (Sonarr/Radarr/Prowlarr/SABnzbd/qBittorrent) sind von hier weder per
+  # DNS auflösbar noch erreichbar und haben bewusst keine proxy-conf.
+  swag:
+    image: lscr.io/linuxserver/swag:5.7.0-ls479
+    container_name: swag
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
+      - TZ=${TZ:-Europe/Berlin}
+      - URL=${SWAG_URL:-mmaeurer.de}
+      - SUBDOMAINS=wildcard
+      - VALIDATION=dns
+      - DNSPLUGIN=inwx
+      - ONLY_SUBDOMAINS=true
+      - EMAIL=${SWAG_EMAIL}
+      - STAGING=${SWAG_STAGING:-true}
+      # swag-dbip: lädt die DB-IP-Country-Lite-Datenbank für nginx
+      # (kein MaxMind-Konto nötig) — Grundlage des Geo-Blockings in
+      # nginx/geoip2.conf, das nur DE/AT durchlässt.
+      - DOCKER_MODS=linuxserver/mods:swag-dbip
+    volumes:
+      - swag_data:/config
+    ports:
+      - "${UNRAID_IP}:${SWAG_PORT_HTTPS:-443}:443/tcp"
+      - "${UNRAID_IP}:${SWAG_PORT_HTTPS:-443}:443/udp"   # HTTP/3 (QUIC)
+    dns:
+      - ${DOCKER_DNS:-192.168.178.1}
+      - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
+    networks:
+      - proxynet
 
   # ==========================================================================
   # VAULTWARDEN — deaktiviert (--profile vaultwarden), Einrichtung folgt später

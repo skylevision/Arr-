@@ -73,6 +73,7 @@ APPDATA_DIRS=(
   jellyfin/config
   jellyfin/cache
   homepage
+  swag
 )
 
 for dir in "${APPDATA_DIRS[@]}"; do
