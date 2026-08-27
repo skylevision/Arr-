@@ -1,0 +1,1643 @@
+import React, { useState, useEffect, useRef } from "react";
+
+/* ═══════════════════════════════════════════════════════════════════
+   RACK
+   1 Erfassen    Foto, Freistellung, Modell liest nur sichtbare Fakten
+   2 Rechnen     harte Ausschlüsse, dann gewichtete Bewertung
+   3 Kuratieren  Modell wählt aus, benennt, erklärt das Tragen
+   4 Lücken      Waisenanalyse und virtueller Test neuer Teile
+   Speicher läuft ausschließlich über store(), damit der spätere
+   Umzug auf einen eigenen Server nur diese Schicht betrifft.
+   ═══════════════════════════════════════════════════════════════════ */
+
+const C = {
+  bg: "#121212",
+  surface: "#1a1a1a",
+  raised: "#232323",
+  line: "#2f2f2f",
+  text: "#ece8e2",
+  dim: "#8f8981",
+  faint: "#5c5852",
+  signal: "#c8542f",
+};
+const DISPLAY = "'Bodoni Moda', Didot, Georgia, serif";
+const SANS = "'Archivo', 'Helvetica Neue', Arial, sans-serif";
+
+const CATEGORIES = ["Oberteil", "Unterteil", "Kleid", "Jacke", "Schuhe", "Accessoire"];
+const ACCESSORY_TYPES = ["Uhr", "Schmuck", "Mütze", "Cap", "Schal", "Gürtel", "Tasche", "Brille"];
+const HEAD_WARM = ["Mütze", "Schal"];
+const FITS = ["oversize", "weit", "regular", "slim", "cropped"];
+const TOP_LEN = ["cropped", "hüftlang", "longline"];
+const BOTTOM_LEN = ["shorts", "sieben-achtel", "knöchel", "lang", "stacked"];
+const RISES = ["high", "mid", "low"];
+const THICKNESS = ["dünn", "mittel", "dick"];
+const PATTERNS = ["uni", "gestreift", "kariert", "gemustert", "meliert", "logo"];
+const SHOE_WEIGHT = ["filigran", "normal", "chunky"];
+const BUILDS = ["schlank", "normal", "athletisch", "kräftig"];
+const TORSOS = ["langer Oberkörper", "ausgeglichen", "lange Beine"];
+const SILHOUETTES = [
+  { key: "oversize", label: "Durchgehend weit", hint: "Enge Teile fallen raus" },
+  { key: "mix", label: "Oben weit, unten gerade", hint: "Volumen oben, klare Linie unten" },
+  { key: "frei", label: "Proportionsspiel", hint: "Weit zu schmal ist erwünscht" },
+  { key: "offen", label: "Alles erlaubt", hint: "Keine Silhouettenvorgabe, nur Statur und Proportion entscheiden" },
+];
+const OCCASIONS = [
+  { key: "Alltag", f: 2 },
+  { key: "Arbeit", f: 4 },
+  { key: "Abends", f: 3 },
+  { key: "Anlass", f: 5 },
+  { key: "Sport", f: 1 },
+];
+
+const META = "rack_meta";
+const TRENDS = "rack_trends";
+const ALBUM = 10;
+const TREND_MAX_AGE = 30 * 86400000;
+
+/* ───────────────────────────── Speicheradapter ───────────────────── */
+
+/* Die Aufrufform der Speicher-API unterscheidet sich je nach Umgebung.
+   Beim ersten Zugriff probiert die App die Varianten durch und merkt sich
+   die funktionierende. Klappt keine, läuft alles nur in dieser Sitzung. */
+const VARIANTS = [
+  { id: "text, geteilt-Flag", set: (k, v) => window.storage.set(k, JSON.stringify(v), false), get: (k) => window.storage.get(k, false) },
+  { id: "text", set: (k, v) => window.storage.set(k, JSON.stringify(v)), get: (k) => window.storage.get(k) },
+  { id: "objekt, geteilt-Flag", set: (k, v) => window.storage.set(k, v, false), get: (k) => window.storage.get(k, false) },
+  { id: "objekt", set: (k, v) => window.storage.set(k, v), get: (k) => window.storage.get(k) },
+];
+let MODE = null;
+
+function unpack(r) {
+  if (r === null || r === undefined) return null;
+  const v = r && typeof r === "object" && "value" in r ? r.value : r;
+  if (v === null || v === undefined) return null;
+  return typeof v === "string" ? JSON.parse(v) : v;
+}
+
+async function diagnose() {
+  const out = [];
+  const add = (label, info) => out.push({ label, info: String(info).slice(0, 260) });
+  if (!window.storage) return [{ label: "window.storage", info: "nicht vorhanden" }];
+  add("Methoden", Object.keys(window.storage).join(", ") || "keine");
+
+  /* Lesen zuerst. Klappt das, ist die Gegenseite grundsätzlich erreichbar. */
+  try {
+    add("list()", JSON.stringify(await window.storage.list()));
+  } catch (e) {
+    add("list()", `Fehler: ${e.message}`);
+  }
+  try {
+    add('list("", false)', JSON.stringify(await window.storage.list("", false)));
+  } catch (e) {
+    add('list("", false)', `Fehler: ${e.message}`);
+  }
+  try {
+    add("get unbekannt", JSON.stringify(await window.storage.get("rack_nope", false)));
+  } catch (e) {
+    add("get unbekannt", `Fehler: ${e.message}`);
+  }
+
+  /* Dann schreiben, mit immer einfacheren Werten. */
+  const values = [
+    ["nur ein Zeichen", "x"],
+    ["Zahl als Text", "1"],
+    ["JSON-Text", '{"t":1}'],
+    ["leerer Text", ""],
+  ];
+  for (const [name, val] of values) {
+    try {
+      const r = await window.storage.set("rack_probe", val, false);
+      add(`set ${name}`, `ok, Rückgabe ${JSON.stringify(r)}`);
+    } catch (e) {
+      add(`set ${name}`, `Fehler: ${e.message}`);
+    }
+  }
+  try {
+    add("delete", JSON.stringify(await window.storage.delete("rack_probe", false)));
+  } catch (e) {
+    add("delete", `Fehler: ${e.message}`);
+  }
+  return out;
+}
+
+const store = {
+  get mode() {
+    return MODE ? MODE.id : null;
+  },
+  async get(key) {
+    const list = MODE ? [MODE, ...VARIANTS.filter((v) => v !== MODE)] : VARIANTS;
+    for (const v of list) {
+      try {
+        const r = await v.get(key);
+        if (r !== undefined) return unpack(r);
+      } catch (e) {
+        /* nächste Variante */
+      }
+    }
+    return null;
+  },
+  async set(key, value) {
+    if (!window.storage) throw new Error("Kein Speicher in dieser Umgebung");
+    const list = MODE ? [MODE, ...VARIANTS.filter((v) => v !== MODE)] : VARIANTS;
+    let last = null;
+    for (const v of list) {
+      try {
+        await v.set(key, value);
+        const check = await v.get(key);
+        if (unpack(check) !== null) {
+          MODE = v;
+          return true;
+        }
+      } catch (e) {
+        last = e;
+      }
+    }
+    throw last || new Error("Keine Speichervariante hat funktioniert");
+  },
+};
+
+/* ────────────────────────────── Bildhandwerk ─────────────────────── */
+
+const loadImage = (src) =>
+  new Promise((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = () => rej(new Error("bild"));
+    i.src = src;
+  });
+
+const readFile = (file) =>
+  new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = () => rej(new Error("datei"));
+    r.readAsDataURL(file);
+  });
+
+function tryCutout(canvas) {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const w = canvas.width;
+  const h = canvas.height;
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+
+  const border = [];
+  for (let x = 0; x < w; x += 3) border.push(x, (h - 1) * w + x);
+  for (let y = 0; y < h; y += 3) border.push(y * w, y * w + w - 1);
+
+  let r = 0, g = 0, b = 0;
+  border.forEach((p) => {
+    r += d[p * 4];
+    g += d[p * 4 + 1];
+    b += d[p * 4 + 2];
+  });
+  r /= border.length;
+  g /= border.length;
+  b /= border.length;
+
+  let variance = 0;
+  border.forEach((p) => {
+    variance += Math.abs(d[p * 4] - r) + Math.abs(d[p * 4 + 1] - g) + Math.abs(d[p * 4 + 2] - b);
+  });
+  if (variance / border.length > 46) return null;
+
+  const visited = new Uint8Array(w * h);
+  const stack = border.slice();
+  while (stack.length) {
+    const p = stack.pop();
+    if (p < 0 || p >= w * h || visited[p]) continue;
+    const o = p * 4;
+    if (Math.sqrt((d[o] - r) ** 2 + (d[o + 1] - g) ** 2 + (d[o + 2] - b) ** 2) > 58) continue;
+    visited[p] = 1;
+    d[o + 3] = 0;
+    const x = p % w;
+    if (x > 0) stack.push(p - 1);
+    if (x < w - 1) stack.push(p + 1);
+    stack.push(p - w, p + w);
+  }
+
+  let cleared = 0;
+  for (let i = 0; i < w * h; i++) if (visited[i]) cleared++;
+  const ratio = cleared / (w * h);
+  if (ratio < 0.08 || ratio > 0.93) return null;
+  ctx.putImageData(img, 0, 0);
+
+  let minX = w, minY = h, maxX = 0, maxY = 0;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++)
+      if (d[(y * w + x) * 4 + 3] > 24) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+  if (maxX <= minX || maxY <= minY) return null;
+
+  const bw = maxX - minX;
+  const bh = maxY - minY;
+  const side = Math.round(Math.max(bw, bh) * 1.14);
+  const out = document.createElement("canvas");
+  out.width = side;
+  out.height = side;
+  out.getContext("2d").drawImage(canvas, minX, minY, bw, bh, (side - bw) / 2, (side - bh) / 2, bw, bh);
+  return out.toDataURL("image/png");
+}
+
+async function prepareImage(file, cutoutOn, maxDim = 460) {
+  const img = await loadImage(await readFile(file));
+  const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.width * scale);
+  c.height = Math.round(img.height * scale);
+  c.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0, c.width, c.height);
+  if (cutoutOn) {
+    try {
+      const cut = tryCutout(c);
+      if (cut) return { url: cut, cutout: true };
+    } catch (e) {
+      /* Freistellung ist optional */
+    }
+  }
+  const flat = document.createElement("canvas");
+  flat.width = c.width;
+  flat.height = c.height;
+  const f = flat.getContext("2d");
+  f.fillStyle = "#f2f0ed";
+  f.fillRect(0, 0, flat.width, flat.height);
+  f.drawImage(c, 0, 0);
+  return { url: flat.toDataURL("image/jpeg", 0.74), cutout: false };
+}
+
+/* ─────────────────────── Farbe und abgeleitete Werte ─────────────── */
+
+function hsl(hex) {
+  if (!hex || typeof hex !== "string") return { h: 0, s: 0, l: 0.5 };
+  const m = hex.replace("#", "").match(/.{1,2}/g);
+  if (!m || m.length < 3) return { h: 0, s: 0, l: 0.5 };
+  const [r, g, b] = m.map((v) => parseInt(v, 16) / 255);
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+  let h = 0, s = 0;
+  if (mx !== mn) {
+    const dd = mx - mn;
+    s = l > 0.5 ? dd / (2 - mx - mn) : dd / (mx + mn);
+    if (mx === r) h = ((g - b) / dd + (g < b ? 6 : 0)) * 60;
+    else if (mx === g) h = ((b - r) / dd + 2) * 60;
+    else h = ((r - g) / dd + 4) * 60;
+  }
+  return { h, s, l };
+}
+const neutral = (hex) => {
+  const c = hsl(hex);
+  return c.s < 0.17 || c.l < 0.13 || c.l > 0.93;
+};
+const hueGap = (a, b) => {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+};
+
+const WARM_WORDS = { wolle: 1.4, kaschmir: 1.4, fleece: 1.3, daune: 2, strick: 1, leder: 0.6, denim: 0.4, baumwolle: 0, jersey: 0, leinen: -0.6, seide: -0.4 };
+const FORMAL_HINTS = [
+  { re: /(anzug|blazer|sakko|hemd|bluse|loafer|oxford|derby|mantel|rock|kleid|krawatte)/i, v: 4.4 },
+  { re: /(chino|strick|pullover|cardigan|polo|chelsea|stiefel|hemdjacke|overshirt|trench)/i, v: 3.3 },
+  { re: /(jeans|denim|sneaker|t-shirt|shirt|hoodie|sweat|cargo|parka|bomber|kapuze|beanie|mütze)/i, v: 2 },
+  { re: /(jogging|trainings|sport|lauf|shorts|flip|slide)/i, v: 1.2 },
+];
+
+function derive(a) {
+  const th = Math.max(0, THICKNESS.indexOf(a.thickness));
+  const mat = String(a.material || "").toLowerCase();
+  let bonus = 0;
+  Object.keys(WARM_WORDS).forEach((k) => {
+    if (mat.includes(k)) bonus = WARM_WORDS[k];
+  });
+  let warmth;
+  if (a.category === "Jacke") warmth = 2.2 + th * 1.4 + bonus;
+  else if (a.category === "Oberteil") warmth = 0.9 + th * 1.1 + bonus + (a.sleeve === "lang" ? 0.5 : 0);
+  else if (a.category === "Unterteil") warmth = 1.2 + th * 0.9 + bonus + (a.length === "shorts" ? -1 : 0);
+  else if (a.category === "Kleid") warmth = 1 + th * 1 + bonus;
+  else if (a.category === "Schuhe") warmth = 1 + th * 0.6;
+  else warmth = HEAD_WARM.includes(a.subcategory) ? 1.5 + th * 0.5 : 0.4;
+
+  const hay = `${a.subcategory || ""} ${a.name || ""} ${mat}`;
+  let formality = 2.6;
+  for (const f of FORMAL_HINTS) if (f.re.test(hay)) { formality = f.v; break; }
+  if (a.pattern === "logo") formality -= 0.7;
+  if (a.texture === "glänzend") formality += 0.4;
+  if (a.fit === "oversize") formality -= 0.4;
+
+  return {
+    warmth: Math.max(0.4, Math.min(5, Math.round(warmth * 2) / 2)),
+    formality: Math.max(1, Math.min(5, Math.round(formality * 2) / 2)),
+  };
+}
+
+/* ──────────────────────── Regeln, hart und weich ─────────────────── */
+
+const VOL = { oversize: 3, weit: 2.5, regular: 2, cropped: 2, slim: 1 };
+const vol = (i) => VOL[i.fit] ?? 2;
+const isAcc = (p) => p.category === "Accessoire";
+
+function sSilhouette(top, bottom, mode) {
+  const vt = vol(top), vb = vol(bottom);
+  if (mode === "offen") return Math.abs(vt - vb) >= 1 ? 0.9 : 0.85;
+  if (mode === "oversize") {
+    if (vt <= 1 || vb <= 1) return 0;
+    if (vt >= 2.5 && vb >= 2.5) return 1;
+    return vt >= 2.5 || vb >= 2.5 ? 0.6 : 0.32;
+  }
+  if (mode === "mix") {
+    if (vb <= 1) return 0;
+    if (vt >= 2.5 && vb === 2) return 1;
+    return vt >= 2.5 ? 0.6 : 0.38;
+  }
+  const diff = Math.abs(vt - vb);
+  return diff >= 1 ? 0.96 : vt >= 2.5 ? 0.72 : 0.78;
+}
+
+function sProportion(top, bottom, body) {
+  const tl = top.length || "hüftlang";
+  const bl = bottom.length || "lang";
+  const rise = bottom.rise || "mid";
+  let s = 0.8;
+  if (tl === "cropped") s = rise === "high" ? 1 : rise === "mid" ? 0.74 : 0.32;
+  if (tl === "hüftlang") s = rise === "low" ? 0.58 : 0.86;
+  if (tl === "longline") s = bl === "shorts" ? 0.28 : vol(bottom) >= 2.5 ? 0.7 : 0.92;
+  if (bl === "stacked" && vol(bottom) <= 1) s *= 0.72;
+
+  let m = 1;
+  const h = body?.height || 180;
+  if (h <= 172) {
+    if (tl === "longline" && vol(bottom) >= 2.5) m *= 0.72;
+    if (tl === "cropped" && rise === "high") m *= 1.14;
+    if (rise === "low") m *= 0.84;
+  }
+  if (h >= 188 && tl === "longline") m *= 1.06;
+  if (body?.build === "kräftig") {
+    if (vol(top) >= 2.5 && vol(bottom) >= 2.5) m *= 0.84;
+    if (vol(top) >= 2.5 && vol(bottom) === 2) m *= 1.08;
+  }
+  if (body?.build === "schlank" && vol(top) >= 2.5 && vol(bottom) >= 2.5) m *= 1.05;
+  if (body?.torso === "langer Oberkörper") m *= rise === "high" ? 1.12 : rise === "low" ? 0.76 : 1;
+  if (body?.torso === "lange Beine") m *= tl === "longline" ? 1.08 : tl === "cropped" ? 0.92 : 1;
+
+  return Math.max(0, Math.min(1, s * m));
+}
+
+function colorDetail(parts) {
+  const hexes = parts.map((p) => p.colorHex).filter(Boolean);
+  const colored = hexes.filter((h) => !neutral(h));
+  let worst = 1;
+  if (colored.length > 1)
+    for (let i = 0; i < colored.length; i++)
+      for (let j = i + 1; j < colored.length; j++) {
+        const gap = hueGap(hsl(colored[i]).h, hsl(colored[j]).h);
+        worst = Math.min(worst, gap < 18 ? 0.96 : gap < 50 ? 0.9 : gap > 150 ? 0.74 : gap > 100 ? 0.44 : 0.3);
+      }
+  let base = colored.length > 1 ? (colored.length >= 3 ? worst * 0.84 : worst) : 0.92;
+  const ls = hexes.map((h) => hsl(h).l);
+  const spread = Math.max(...ls) - Math.min(...ls);
+  if (spread < 0.07) base *= 0.88;
+  if (spread > 0.55) base = Math.min(1, base * 1.05);
+  return { score: base, worst };
+}
+
+const boldCount = (parts) => parts.filter((p) => p.pattern && p.pattern !== "uni" && (p.patternScale === "groß" || p.pattern === "kariert")).length;
+
+function sPattern(parts) {
+  const bold = boldCount(parts);
+  const any = parts.filter((p) => p.pattern && p.pattern !== "uni").length;
+  if (bold > 1) return 0.12;
+  if (bold === 1 && any > 2) return 0.48;
+  return any === 0 ? 0.84 : 1;
+}
+
+function sTexture(parts) {
+  const t = parts.map((p) => p.texture).filter(Boolean);
+  if (t.length < 2) return 0.85;
+  const u = new Set(t).size;
+  return u === 1 ? 0.74 : u >= 3 ? 0.88 : 1;
+}
+
+function sShoes(shoe, bottom) {
+  const w = shoe.shoeWeight || "normal";
+  const v = vol(bottom);
+  if (v >= 2.5) return w === "chunky" ? 1 : w === "normal" ? 0.82 : 0.42;
+  if (v <= 1) return w === "chunky" ? 0.62 : 0.92;
+  return 0.9;
+}
+
+function sFormality(parts, target) {
+  const v = parts.filter((p) => !isAcc(p)).map((p) => p.formality || 3);
+  const spread = Math.max(...v) - Math.min(...v);
+  const mean = v.reduce((a, b) => a + b, 0) / v.length;
+  return (spread <= 1 ? 1 : spread <= 2 ? 0.56 : 0.16) * 0.55 + Math.max(0, 1 - Math.abs(mean - target) / 2.5) * 0.45;
+}
+
+const need = (t) => (t >= 25 ? 3 : t >= 18 ? 5 : t >= 12 ? 7 : t >= 5 ? 9 : 11.5);
+const warmthSum = (parts) => parts.filter((p) => !isAcc(p) || HEAD_WARM.includes(p.subcategory)).reduce((a, p) => a + (p.warmth || 3), 0);
+const sWarmth = (parts, t) => Math.max(0, 1 - Math.abs(warmthSum(parts) - need(t)) / 5.5);
+
+const sFresh = (parts) =>
+  Math.min(
+    ...parts.map((p) => {
+      if (!p.lastWorn) return 1;
+      const d = (Date.now() - new Date(p.lastWorn).getTime()) / 86400000;
+      return d < 2 ? 0.12 : d < 5 ? 0.58 : d < 10 ? 0.88 : 1;
+    })
+  );
+
+const pairKey = (a, b) => [a, b].sort().join("|");
+function fbFactor(parts, fb) {
+  let f = 1;
+  for (let i = 0; i < parts.length; i++)
+    for (let j = i + 1; j < parts.length; j++) {
+      const k = pairKey(parts[i].id, parts[j].id);
+      if (fb.disliked.includes(k)) f *= 0.3;
+      else if (fb.liked.includes(k)) f *= 1.12;
+    }
+  return Math.min(f, 1.4);
+}
+
+const W = { silhouette: 0.23, proportion: 0.15, color: 0.16, warmth: 0.15, formality: 0.12, shoes: 0.09, pattern: 0.06, texture: 0.04 };
+/* Ohne Silhouettenvorgabe trägt die Passung zur Statur das Gewicht. */
+const W_OPEN = { silhouette: 0.08, proportion: 0.30, color: 0.16, warmth: 0.15, formality: 0.12, shoes: 0.09, pattern: 0.06, texture: 0.04 };
+
+/* Harte Ausschlüsse. Was hier scheitert, wird nie vorgeschlagen. */
+function violates(parts, ctx, level) {
+  const top = parts.find((p) => p.category === "Oberteil" || p.category === "Kleid");
+  const bottom = parts.find((p) => p.category === "Unterteil");
+  const shoe = parts.find((p) => p.category === "Schuhe");
+  const tol = level === 0 ? 1 : level === 1 ? 1.35 : 1.8;
+
+  if (top && bottom && sSilhouette(top, bottom, ctx.mode) === 0) return "Silhouette";
+  if (ctx.mode === "offen" && top && bottom && sProportion(top, bottom, ctx.body) < 0.42 / tol) return "passt nicht zur Statur";
+  if (boldCount(parts) > 1) return "zwei laute Muster";
+  const f = parts.filter((p) => !isAcc(p)).map((p) => p.formality || 3);
+  if (Math.max(...f) - Math.min(...f) > 2 * tol) return "Formalität";
+  if (Math.abs(warmthSum(parts) - need(ctx.temp)) > 4.5 * tol) return "Wetter";
+  if (colorDetail(parts).worst < 0.34 / tol) return "Farbkonflikt";
+  if (shoe && bottom && sShoes(shoe, bottom) < 0.45 / tol) return "Schuhgewicht";
+  return null;
+}
+
+function score(parts, ctx) {
+  const top = parts.find((p) => p.category === "Oberteil" || p.category === "Kleid");
+  const bottom = parts.find((p) => p.category === "Unterteil");
+  const shoe = parts.find((p) => p.category === "Schuhe");
+  const sub = {
+    silhouette: top && bottom ? sSilhouette(top, bottom, ctx.mode) : 0.82,
+    proportion: top && bottom ? sProportion(top, bottom, ctx.body) : 0.85,
+    color: colorDetail(parts).score,
+    warmth: sWarmth(parts, ctx.temp),
+    formality: sFormality(parts, ctx.target),
+    shoes: shoe && bottom ? sShoes(shoe, bottom) : 0.85,
+    pattern: sPattern(parts),
+    texture: sTexture(parts),
+  };
+  const weights = ctx.mode === "offen" ? W_OPEN : W;
+  let total = Object.keys(weights).reduce((a, k) => a + weights[k] * sub[k], 0);
+  if (parts.some(isAcc)) total += 0.02;
+  total *= fbFactor(parts, ctx.fb) * (0.9 + 0.1 * sFresh(parts));
+  return { total: Math.min(total, 1), sub };
+}
+
+/* Erzeugt alle zulässigen Kombinationen, absteigend bewertet. */
+function build(items, ctx, level = 0) {
+  const by = (c) => items.filter((i) => i.category === c && !i.paused);
+  const tops = by("Oberteil"), bottoms = by("Unterteil"), dresses = by("Kleid");
+  const shoes = by("Schuhe"), outers = by("Jacke"), accs = by("Accessoire");
+  const needOuter = ctx.temp < 14;
+  const out = [];
+
+  const finish = (base) => {
+    if (!shoes.length) return;
+    let best = null;
+    shoes.forEach((sh) => {
+      (needOuter && outers.length ? outers : [null]).forEach((ou) => {
+        const core = ou ? [...base, sh, ou] : [...base, sh];
+        let parts = core;
+        if (accs.length) {
+          let bestAcc = null;
+          accs.forEach((ac) => {
+            if (ctx.temp > 10 && HEAD_WARM.includes(ac.subcategory)) return;
+            const cand = [...core, ac];
+            if (violates(cand, ctx, level)) return;
+            const s = score(cand, ctx).total;
+            if (!bestAcc || s > bestAcc.s) bestAcc = { s, cand };
+          });
+          if (bestAcc && bestAcc.s > score(core, ctx).total) parts = bestAcc.cand;
+        }
+        if (ctx.anchor && !parts.some((p) => p.id === ctx.anchor)) return;
+        if (violates(parts, ctx, level)) return;
+        const sc = score(parts, ctx);
+        if (!best || sc.total > best.score.total) best = { parts, score: sc };
+      });
+    });
+    if (best) out.push(best);
+  };
+
+  tops.forEach((t) => bottoms.forEach((b) => finish([t, b])));
+  dresses.forEach((d) => finish([d]));
+  out.sort((a, b) => b.score.total - a.score.total);
+  return out;
+}
+
+function topPicks(items, ctx) {
+  let level = 0;
+  let all = build(items, ctx, 0);
+  while (all.length < 3 && level < 2) {
+    level++;
+    all = build(items, ctx, level);
+  }
+  const picked = [];
+  const seen = {};
+  for (const r of all) {
+    const k = r.parts[0].id;
+    if (seen[k]) continue;
+    seen[k] = 1;
+    picked.push(r);
+    if (picked.length >= 8) break;
+  }
+  return { picks: picked, relaxed: level > 0, total: all.length };
+}
+
+/* ─────────────────── Lückenanalyse mit virtuellem Test ───────────── */
+
+function catalogFor(gender) {
+  const base = [
+    { name: "weite Hose, schwarz, hoher Bund", category: "Unterteil", fit: "weit", length: "lang", rise: "high", colorHex: "#1b1b1b", thickness: "mittel", material: "baumwolle", pattern: "uni", texture: "glatt", preisklasse: "mittel" },
+    { name: "gerade Jeans, mittelblau", category: "Unterteil", fit: "regular", length: "knöchel", rise: "mid", colorHex: "#3f5878", thickness: "mittel", material: "denim", pattern: "uni", texture: "robust", preisklasse: "mittel" },
+    { name: "Oversize T-Shirt, weiß", category: "Oberteil", fit: "oversize", length: "hüftlang", colorHex: "#f2f0ec", thickness: "mittel", material: "baumwolle", pattern: "uni", texture: "glatt", sleeve: "kurz", preisklasse: "budget" },
+    { name: "Overshirt, sand", category: "Jacke", fit: "oversize", length: "hüftlang", colorHex: "#b9a894", thickness: "mittel", material: "baumwolle", pattern: "uni", texture: "strukturiert", sleeve: "lang", preisklasse: "mittel" },
+    { name: "Strickpullover, dunkelgrau", category: "Oberteil", fit: "weit", length: "hüftlang", colorHex: "#494c50", thickness: "dick", material: "wolle", pattern: "uni", texture: "strukturiert", sleeve: "lang", preisklasse: "mittel" },
+    { name: "Sneaker, weiß", category: "Schuhe", fit: "regular", colorHex: "#eeeae4", thickness: "mittel", material: "leder", pattern: "uni", texture: "glatt", shoeWeight: "normal", preisklasse: "mittel" },
+    { name: "Boot, schwarz, grobe Sohle", category: "Schuhe", fit: "regular", colorHex: "#141414", thickness: "dick", material: "leder", pattern: "uni", texture: "robust", shoeWeight: "chunky", preisklasse: "premium" },
+    { name: "Parka, oliv", category: "Jacke", fit: "oversize", length: "longline", colorHex: "#4a4f3a", thickness: "dick", material: "baumwolle", pattern: "uni", texture: "robust", sleeve: "lang", preisklasse: "premium" },
+    { name: "Mütze, schwarz", category: "Accessoire", subcategory: "Mütze", fit: "regular", colorHex: "#191919", thickness: "mittel", material: "wolle", pattern: "uni", texture: "strukturiert", preisklasse: "budget" },
+    { name: "Uhr, silber", category: "Accessoire", subcategory: "Uhr", fit: "regular", colorHex: "#b8bcc0", thickness: "dünn", material: "stahl", pattern: "uni", texture: "glänzend", preisklasse: "premium" },
+    { name: "Tasche, schwarz", category: "Accessoire", subcategory: "Tasche", fit: "regular", colorHex: "#161616", thickness: "mittel", material: "nylon", pattern: "uni", texture: "glatt", preisklasse: "mittel" },
+  ];
+  const male = [
+    { name: "Hemd, weiß, weit", category: "Oberteil", fit: "oversize", length: "hüftlang", colorHex: "#f4f2ee", thickness: "dünn", material: "baumwolle", pattern: "uni", texture: "glatt", sleeve: "lang", preisklasse: "mittel" },
+    { name: "Cargohose, dunkelgrün", category: "Unterteil", fit: "weit", length: "stacked", rise: "mid", colorHex: "#3c443a", thickness: "mittel", material: "baumwolle", pattern: "uni", texture: "robust", preisklasse: "mittel" },
+    { name: "Hoodie, grau meliert", category: "Oberteil", fit: "oversize", length: "hüftlang", colorHex: "#8a8d90", thickness: "dick", material: "baumwolle", pattern: "meliert", texture: "flauschig", sleeve: "lang", preisklasse: "mittel" },
+  ];
+  const female = [
+    { name: "Oversize Hemd, weiß", category: "Oberteil", fit: "oversize", length: "longline", colorHex: "#f4f2ee", thickness: "dünn", material: "baumwolle", pattern: "uni", texture: "glatt", sleeve: "lang", preisklasse: "mittel" },
+    { name: "Feinstrick, creme", category: "Oberteil", fit: "regular", length: "cropped", colorHex: "#e3dbcd", thickness: "mittel", material: "wolle", pattern: "uni", texture: "strukturiert", sleeve: "lang", preisklasse: "mittel" },
+    { name: "Anzughose, schwarz, weit", category: "Unterteil", fit: "weit", length: "lang", rise: "high", colorHex: "#1a1a1a", thickness: "mittel", material: "wolle", pattern: "uni", texture: "glatt", preisklasse: "premium" },
+    { name: "Loafer, schwarz", category: "Schuhe", fit: "regular", colorHex: "#151515", thickness: "mittel", material: "leder", pattern: "uni", texture: "glänzend", shoeWeight: "normal", preisklasse: "premium" },
+  ];
+  return [...base, ...(gender === "weiblich" ? female : male)];
+}
+
+const GOOD = 0.62;
+
+function analyseGaps(items, ctx) {
+  const real = items.filter((i) => !i.paused);
+  const baseline = build(real, ctx, 0);
+  const bestFor = {};
+  baseline.forEach((o) => o.parts.forEach((p) => { bestFor[p.id] = Math.max(bestFor[p.id] || 0, o.score.total); }));
+
+  const orphans = real
+    .filter((i) => ["Oberteil", "Unterteil", "Kleid", "Schuhe"].includes(i.category))
+    .filter((i) => (bestFor[i.id] || 0) < 0.55)
+    .map((i) => ({ name: i.name, art: i.subcategory, schnitt: i.fit, farbe: i.colorName, bestePunkte: Math.round((bestFor[i.id] || 0) * 100) }));
+
+  const candidates = catalogFor(ctx.gender).map((c, n) => {
+    const virt = { ...c, ...derive(c), id: `virt_${n}` };
+    const withIt = build([...real, virt], ctx, 0);
+    const gain = withIt.filter((o) => o.score.total >= GOOD && o.parts.some((p) => p.id === virt.id)).length;
+    const bestScore = Math.max(0, ...withIt.filter((o) => o.parts.some((p) => p.id === virt.id)).map((o) => o.score.total));
+    return { teil: c.name, kategorie: c.category, preisklasse: c.preisklasse, neueOutfits: gain, bestePunkte: Math.round(bestScore * 100) };
+  });
+
+  candidates.sort((a, b) => b.neueOutfits - a.neueOutfits || b.bestePunkte - a.bestePunkte);
+
+  const counts = {};
+  CATEGORIES.forEach((c) => { counts[c] = real.filter((i) => i.category === c).length; });
+  const accTypes = Array.from(new Set(real.filter(isAcc).map((i) => i.subcategory).filter(Boolean)));
+  const guteOutfits = baseline.filter((o) => o.score.total >= GOOD).length;
+
+  return { bestand: counts, accessoires: accTypes, guteOutfits, waisen: orphans.slice(0, 6), kandidaten: candidates.slice(0, 8) };
+}
+
+/* ──────────────────────────── Modellzugriff ──────────────────────── */
+
+function extractJson(text) {
+  const s = text.indexOf("{");
+  const e = text.lastIndexOf("}");
+  if (s < 0 || e < 0) throw new Error("kein json");
+  return JSON.parse(text.slice(s, e + 1));
+}
+
+async function ask(content, { maxTokens = 1200, search = false } = {}) {
+  const body = { model: "claude-sonnet-4-6", max_tokens: maxTokens, messages: [{ role: "user", content }] };
+  if (search) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error("api");
+  const data = await r.json();
+  const text = data.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  return extractJson(text);
+}
+
+const READ_PROMPT = `Lies das Foto eines einzelnen Kleidungsstücks und beschreibe ausschließlich, was sichtbar ist. Bewerte nichts.
+Antworte nur mit JSON.
+
+{
+ "name": "kurze deutsche Bezeichnung, höchstens vier Wörter",
+ "category": "Oberteil | Unterteil | Kleid | Jacke | Schuhe | Accessoire",
+ "subcategory": "präzise Art, bei Accessoire eines von Uhr, Schmuck, Mütze, Cap, Schal, Gürtel, Tasche, Brille",
+ "colorHex": "#rrggbb der dominanten Farbe",
+ "colorName": "deutsche Farbbezeichnung",
+ "pattern": "uni | gestreift | kariert | gemustert | meliert | logo",
+ "patternScale": "klein | mittel | groß oder null",
+ "material": "sichtbares Material in einem Wort",
+ "thickness": "dünn | mittel | dick",
+ "texture": "glatt | strukturiert | glänzend | flauschig | robust",
+ "fit": "oversize | weit | regular | slim | cropped",
+ "length": "Oberteil: cropped | hüftlang | longline. Unterteil: shorts | sieben-achtel | knöchel | lang | stacked. Sonst null",
+ "rise": "nur Unterteil: high | mid | low",
+ "sleeve": "nur Oberteil oder Jacke: ärmellos | kurz | dreiviertel | lang",
+ "shoeWeight": "nur Schuhe: filigran | normal | chunky",
+ "unsicher": ["Feldnamen, bei denen du unsicher bist"]
+}`;
+
+const BODY_PROMPT = `Auf dem Foto steht eine erwachsene Person frontal in eng anliegender Kleidung. Schätze ausschließlich Proportionen für die Kleidungsberatung ein. Beschreibe die Person nicht weiter.
+Antworte nur mit JSON:
+{"build":"schlank | normal | athletisch | kräftig","torso":"langer Oberkörper | ausgeglichen | lange Beine","hinweis":"ein Satz, warum die Einschätzung unsicher sein könnte","confidence":0 bis 1}`;
+
+/* ──────────────────────────── Bausteine ──────────────────────────── */
+
+const Label = ({ children, style }) => (
+  <span style={{ fontFamily: SANS, color: C.dim, letterSpacing: "0.18em", fontSize: 9, ...style }} className="uppercase">
+    {children}
+  </span>
+);
+
+function Field({ label, value, options, onChange, flagged }) {
+  return (
+    <div>
+      <Label style={flagged ? { color: C.signal } : undefined}>{label}{flagged ? " prüfen" : ""}</Label>
+      <select
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ background: C.raised, color: C.text, borderColor: flagged ? C.signal : C.line, fontFamily: SANS }}
+        className="w-full mt-1 border rounded-sm px-2 py-2 text-sm"
+      >
+        <option value="">nicht gesetzt</option>
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+
+const PHOTO_GUIDE = [
+  ["Grundsatz", "Tageslicht, kein Blitz. Heller einfarbiger Untergrund, etwa ein Bettlaken. Handy parallel über dem Teil, nicht schräg. Ganzes Teil im Bild mit etwas Rand."],
+  ["Oberteile", "Flach hinlegen, Ärmel leicht abgespreizt, Schulternaht sichtbar. Nicht falten, sonst wird der Schnitt als enger gelesen als er ist."],
+  ["Hosen", "Flach, Bund oben im Bild, ein Bein leicht versetzt. Nur so ist die Beinweite erkennbar."],
+  ["Jacken", "Geschlossen und flach, Kragen sichtbar. Bei Steppjacken auf gleichmäßiges Licht achten."],
+  ["Schuhe", "Nicht direkt von der Seite, sondern schräg von vorn im Dreiviertelwinkel. Beide Schuhe oder einer, aber immer die Sohle mit im Bild."],
+  ["Accessoires", "Einzeln fotografieren, mit Abstand zum Rand. Uhren mit dem Zifferblatt zur Kamera."],
+];
+
+/* ─────────────────────────────── App ─────────────────────────────── */
+
+export default function Rack() {
+  const [view, setView] = useState("heute");
+  const [items, setItems] = useState([]);
+  const [images, setImages] = useState({});
+  const [albumCount, setAlbumCount] = useState(0);
+  const [profile, setProfile] = useState(null);
+  const [fb, setFb] = useState({ liked: [], disliked: [] });
+  const [trends, setTrends] = useState(null);
+  const [queue, setQueue] = useState([]);
+  const [qIndex, setQIndex] = useState(0);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [detail, setDetail] = useState(null);
+  const [settings, setSettings] = useState(false);
+  const [guide, setGuide] = useState(false);
+  const [bodyDraft, setBodyDraft] = useState(null);
+  const [occasion, setOccasion] = useState("Alltag");
+  const [temp, setTemp] = useState(16);
+  const [anchor, setAnchor] = useState(null);
+  const [outfits, setOutfits] = useState([]);
+  const [relaxed, setRelaxed] = useState(false);
+  const [gaps, setGaps] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [noStore, setNoStore] = useState(false);
+  const [diag, setDiag] = useState(null);
+  const [dirty, setDirty] = useState(0);
+  const fileRef = useRef(null);
+  const bodyRef = useRef(null);
+  const importRef = useRef(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!window.storage) throw new Error("kein Speicher");
+        await window.storage.list();
+      } catch (e) {
+        setNoStore(true);
+      }
+      const meta = await store.get(META);
+      if (meta) {
+        setItems(meta.items || []);
+        setAlbumCount(meta.albumCount || 0);
+        setProfile(meta.profile || null);
+        setFb(meta.fb || { liked: [], disliked: [] });
+      }
+      const t = await store.get(TRENDS);
+      if (t) setTrends(t);
+      setLoading(false);
+      const imgs = {};
+      for (let i = 0; i < (meta?.albumCount || 0); i++) {
+        const a = await store.get(`rack_img_${i}`);
+        if (a) { Object.assign(imgs, a); setImages({ ...imgs }); }
+      }
+    })();
+  }, []);
+
+  async function persist(next = {}) {
+    try {
+      await store.set(META, {
+        items: next.items || items,
+        albumCount: next.albumCount ?? albumCount,
+        profile: next.profile !== undefined ? next.profile : profile,
+        fb: next.fb || fb,
+      });
+      setError("");
+      setNoStore(false);
+    } catch (e) {
+      setNoStore(true);
+      setDirty((d) => d + 1);
+    }
+  }
+
+  const ctx = () => ({
+    temp,
+    target: OCCASIONS.find((o) => o.key === occasion).f,
+    mode: profile?.silhouette || "frei",
+    body: profile,
+    gender: profile?.gender || "männlich",
+    fb,
+    anchor,
+  });
+
+  /* ---------------------------- Erfassen ---------------------------- */
+  async function onFiles(e) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setError("");
+    setBusy(`Bereite ${files.length} Fotos auf`);
+    const entries = [];
+    for (const f of files) {
+      try {
+        const p = await prepareImage(f, true);
+        entries.push({ url: p.url, cutout: p.cutout, attrs: null, state: "wartet" });
+      } catch (err) { /* Datei überspringen */ }
+    }
+    setBusy("");
+    if (fileRef.current) fileRef.current.value = "";
+    if (!entries.length) { setError("Keines der Fotos konnte gelesen werden."); return; }
+    setQueue(entries);
+    setQIndex(0);
+
+    for (let i = 0; i < entries.length; i++) {
+      setQueue((q) => q.map((x, n) => (n === i ? { ...x, state: "liest" } : x)));
+      try {
+        const attrs = await ask([
+          { type: "image", source: { type: "base64", media_type: entries[i].cutout ? "image/png" : "image/jpeg", data: entries[i].url.split(",")[1] } },
+          { type: "text", text: READ_PROMPT },
+        ], { maxTokens: 800 });
+        setQueue((q) => q.map((x, n) => (n === i ? { ...x, attrs, state: "fertig" } : x)));
+      } catch (err) {
+        setQueue((q) => q.map((x, n) => (n === i ? { ...x, state: "fehler", attrs: { name: "", category: "Oberteil", fit: "regular", pattern: "uni", thickness: "mittel", colorHex: "#888888", unsicher: ["category", "fit", "length"] } } : x)));
+      }
+    }
+  }
+
+  const patchQueue = (patch) => setQueue((q) => q.map((x, n) => (n === qIndex ? { ...x, attrs: { ...x.attrs, ...patch } } : x)));
+
+  async function saveCurrent() {
+    const entry = queue[qIndex];
+    if (!entry?.attrs) return;
+    const a = entry.attrs;
+    const idx = Math.floor(items.length / ALBUM);
+    const item = {
+      id: `it_${Date.now()}_${qIndex}`,
+      ...a,
+      category: CATEGORIES.includes(a.category) ? a.category : "Oberteil",
+      fit: FITS.includes(a.fit) ? a.fit : "regular",
+      ...derive(a),
+      albumIdx: idx,
+      cutout: entry.cutout,
+      lastWorn: null,
+      wearCount: 0,
+    };
+    const nextItems = [...items, item];
+    setItems(nextItems);
+    setImages({ ...images, [item.id]: entry.url });
+    setAlbumCount(Math.max(albumCount, idx + 1));
+    try {
+      const album = (await store.get(`rack_img_${idx}`)) || {};
+      album[item.id] = entry.url;
+      await store.set(`rack_img_${idx}`, album);
+    } catch (e) {
+      setError("Das Bild konnte nicht gesichert werden.");
+    }
+    await persist({ items: nextItems, albumCount: Math.max(albumCount, idx + 1) });
+    nextCard();
+  }
+
+  function nextCard() {
+    if (qIndex + 1 < queue.length) setQIndex(qIndex + 1);
+    else { setQueue([]); setQIndex(0); setView("schrank"); }
+  }
+
+  /* ------------------------- Körperanalyse -------------------------- */
+  async function onBodyPhoto(e) {
+    const file = e.target.files?.[0];
+    if (bodyRef.current) bodyRef.current.value = "";
+    if (!file) return;
+    setError("");
+    setBusy("Analysiere Proportionen");
+    try {
+      const prep = await prepareImage(file, false, 620);
+      const res = await ask([
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: prep.url.split(",")[1] } },
+        { type: "text", text: BODY_PROMPT },
+      ], { maxTokens: 500 });
+      setBodyDraft({
+        build: BUILDS.includes(res.build) ? res.build : "normal",
+        torso: TORSOS.includes(res.torso) ? res.torso : "ausgeglichen",
+        hinweis: res.hinweis || "",
+        confidence: res.confidence ?? 0.5,
+      });
+    } catch (err) {
+      setError("Die Analyse hat nicht geklappt. Trag die Werte einfach von Hand ein.");
+    }
+    setBusy("");
+  }
+
+  /* --------------------------- Vorschläge --------------------------- */
+  async function ensureTrends() {
+    if (trends && Date.now() - trends.abgerufen < TREND_MAX_AGE) return trends;
+    try {
+      const res = await ask([{
+        type: "text",
+        text: `Recherchiere im Netz, welche Kleidungstrends aktuell im deutschsprachigen Raum tatsächlich getragen werden, für ${profile?.gender || "männlich"}. Unterscheide zwischen breit getragenen Entwicklungen und kurzlebigen Nischen. Nenne auch, was aktuell als überholt gilt, aber nur wenn es dafür belastbare Hinweise gibt.
+Antworte nur mit JSON:
+{"stand":"Monat und Jahr","trends":["höchstens fünf kurze Stichpunkte"],"ueberholt":["höchstens drei"],"unsicherheit":"ein Satz zur Belastbarkeit"}`,
+      }], { maxTokens: 1500, search: true });
+      const t = { ...res, abgerufen: Date.now() };
+      setTrends(t);
+      await store.set(TRENDS, t);
+      return t;
+    } catch (e) {
+      return trends;
+    }
+  }
+
+  async function suggest() {
+    setError("");
+    setOutfits([]);
+    const c = ctx();
+    const { picks, relaxed: wasRelaxed } = topPicks(items, c);
+    setRelaxed(wasRelaxed);
+    if (!picks.length) {
+      setError("Keine zulässige Kombination gefunden. Es fehlen Oberteile, Unterteile oder Schuhe.");
+      return;
+    }
+    setBusy("Kuratiere");
+    const tr = await ensureTrends();
+    const payload = picks.map((p, i) => ({
+      nr: i,
+      punkte: Math.round(p.score.total * 100),
+      teile: p.parts.map((x) => ({ id: x.id, name: x.name, art: x.subcategory, farbe: x.colorName, hex: x.colorHex, schnitt: x.fit, laenge: x.length, bund: x.rise, aermel: x.sleeve, muster: x.pattern, material: x.material })),
+    }));
+    try {
+      const res = await ask([{
+        type: "text",
+        text: `Du bist ein erfahrener Stylist. Eine Regel-Engine hat bereits alle unzulässigen Kombinationen aussortiert und die zulässigen bewertet. Wähle die drei besten aus und erkläre vor allem, wie man sie trägt.
+
+Person: ${profile?.gender || "männlich"}, ${profile?.height || 180} cm, Statur ${profile?.build || "normal"}, ${profile?.torso || "ausgeglichen"}${profile?.glasses ? ", trägt Brille" : ""}.
+Silhouette: ${SILHOUETTES.find((s) => s.key === (profile?.silhouette || "frei")).label}.
+${profile?.notes ? `Eigene Vorgaben: ${profile.notes}` : ""}
+Anlass: ${occasion}. Temperatur: ${temp} Grad.
+${tr ? `Aktuelle Einordnung (Stand ${tr.stand}): ${(tr.trends || []).join("; ")}. Gilt als überholt: ${(tr.ueberholt || []).join("; ")}.` : ""}
+
+Regeln für deine Antwort:
+- Beziehe dich ausschließlich auf Teile, die im jeweiligen Outfit enthalten sind. Erfinde nichts dazu.
+- Die Styling-Schritte müssen konkret und ausführbar sein: Layering-Reihenfolge, Hemd offen oder geschlossen und wie viele Knöpfe, Ärmel gekrempelt und wie, Oberteil eingesteckt, halb eingesteckt oder offen, Hosensaum auf dem Schuh oder gekrempelt, Sitz der Mütze, ob eine Uhr sichtbar getragen wird.
+- Der Trendhinweis ist optional und darf die Auswahl nicht überstimmen. Lass ihn weg, wenn er nichts beiträgt.
+- Die drei Outfits sollen sich klar unterscheiden.
+
+Kandidaten:
+${JSON.stringify(payload)}
+
+Antworte nur mit JSON:
+{"auswahl":[{"nr":0,"titel":"höchstens drei Wörter","begruendung":"zwei Sätze","styling":["drei bis fünf konkrete Schritte"],"trendhinweis":"ein Satz oder leer"}]}`,
+      }], { maxTokens: 2000 });
+      const picked = (res.auswahl || []).map((a) => ({ ...a, cand: picks[a.nr] })).filter((a) => a.cand);
+      setOutfits(picked.length ? picked : picks.slice(0, 3).map((p, i) => ({ titel: `Kombination ${i + 1}`, cand: p })));
+    } catch (err) {
+      setOutfits(picks.slice(0, 3).map((p, i) => ({ titel: `Kombination ${i + 1}`, begruendung: "Die Kuratierung war nicht erreichbar. Das ist die Rangfolge der Engine.", cand: p })));
+    }
+    setBusy("");
+  }
+
+  async function runGaps() {
+    setError("");
+    setGaps(null);
+    setBusy("Rechne durch, was dir fehlt");
+    const data = analyseGaps(items, ctx());
+    try {
+      const res = await ask([{
+        type: "text",
+        text: `Du berätst beim Aufbau einer Garderobe. Die Rechnung ist bereits gemacht, du formulierst sie nur aus und ergänzt konkrete Beispielprodukte.
+
+Person: ${profile?.gender || "männlich"}, ${profile?.height || 180} cm, Statur ${profile?.build || "normal"}, ${profile?.torso || "ausgeglichen"}${profile?.glasses ? ", trägt Brille" : ""}. Silhouette: ${SILHOUETTES.find((s) => s.key === (profile?.silhouette || "frei")).label}.
+
+Analyse des vorhandenen Schranks:
+${JSON.stringify(data)}
+
+"kandidaten" ist nach dem gemessenen Zugewinn sortiert: neueOutfits ist die Anzahl zusätzlicher guter Kombinationen, die dieses Teil im vorhandenen Schrank ermöglichen würde. "waisen" sind vorhandene Teile, die in keiner guten Kombination auftauchen.
+
+Suche im Netz nach aktuell erhältlichen Beispielprodukten und nenne pro Empfehlung ein bis zwei konkrete Modelle mit Marke. Wähle die Preisklasse passend zum Teil: Basics günstig, langlebige Schlüsselstücke dürfen teurer sein. Preise nur als grobe Spanne, ohne Anspruch auf Aktualität.
+
+Regeln:
+- Empfiehl nur Teile, die laut Rechnung tatsächlich etwas bringen. Nichts erfinden, was nicht in den Kandidaten steht, außer es löst nachweislich eine Waise auf.
+- Nenne bei jeder Empfehlung, welche vorhandenen Teile dadurch neu kombinierbar werden.
+- Zu den Waisen: erkläre, woran es liegt, und ob ein neues Teil hilft oder das Stück eher ausrangiert gehört.
+
+Antworte nur mit JSON:
+{"empfehlungen":[{"teil":"konkrete Beschreibung mit Farbe und Schnitt","warum":"zwei Sätze mit Bezug auf vorhandene Teile","gewinn":"Anzahl neuer Outfits als Zahl","preisspanne":"z.B. 40 bis 70 Euro","beispiele":[{"marke":"","modell":""}]}],"waisen":[{"teil":"","diagnose":"ein bis zwei Sätze"}],"hinweis":"ein Satz zur Verlässlichkeit der Produktangaben"}`,
+      }], { maxTokens: 3000, search: true });
+      setGaps({ ...res, roh: data });
+    } catch (err) {
+      setGaps({ empfehlungen: [], waisen: data.waisen.map((w) => ({ teil: w.name, diagnose: `Beste Bewertung nur ${w.bestePunkte} von 100.` })), roh: data, hinweis: "Die Websuche war nicht erreichbar, das ist die reine Rechnung." });
+    }
+    setBusy("");
+  }
+
+  async function rate(parts, verdict) {
+    const keys = [];
+    for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) keys.push(pairKey(parts[i].id, parts[j].id));
+    const next = {
+      liked: verdict === "gut" ? Array.from(new Set([...fb.liked, ...keys])) : fb.liked.filter((k) => !keys.includes(k)),
+      disliked: verdict === "schlecht" ? Array.from(new Set([...fb.disliked, ...keys])) : fb.disliked.filter((k) => !keys.includes(k)),
+    };
+    setFb(next);
+    await persist({ fb: next });
+  }
+
+  async function worn(ids) {
+    const now = new Date().toISOString();
+    const next = items.map((i) => (ids.includes(i.id) ? { ...i, lastWorn: now, wearCount: (i.wearCount || 0) + 1 } : i));
+    setItems(next);
+    await persist({ items: next });
+  }
+
+  async function updateItem(id, patch) {
+    const next = items.map((i) => (i.id === id ? { ...i, ...patch } : i));
+    setItems(next);
+    setDetail((d) => (d && d.id === id ? { ...d, ...patch } : d));
+    await persist({ items: next });
+  }
+
+  async function removeItem(id) {
+    const it = items.find((i) => i.id === id);
+    const next = items.filter((i) => i.id !== id);
+    setItems(next);
+    setDetail(null);
+    const ni = { ...images };
+    delete ni[id];
+    setImages(ni);
+    try {
+      const album = await store.get(`rack_img_${it.albumIdx}`);
+      if (album) { delete album[id]; await store.set(`rack_img_${it.albumIdx}`, album); }
+    } catch (e) { /* Bildrest unkritisch */ }
+    await persist({ items: next });
+  }
+
+  function exportAll() {
+    const blob = new Blob([JSON.stringify({ version: 2, items, images, profile, fb })], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `rack-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    setDirty(0);
+  }
+
+  async function importAll(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      const albums = {};
+      (data.items || []).forEach((it) => {
+        const k = `rack_img_${it.albumIdx}`;
+        albums[k] = albums[k] || {};
+        if (data.images?.[it.id]) albums[k][it.id] = data.images[it.id];
+      });
+      for (const k of Object.keys(albums)) await store.set(k, albums[k]);
+      const count = Math.max(0, ...(data.items || []).map((i) => i.albumIdx + 1));
+      setItems(data.items || []);
+      setImages(data.images || {});
+      setProfile(data.profile || null);
+      setFb(data.fb || { liked: [], disliked: [] });
+      setAlbumCount(count);
+      await persist({ items: data.items || [], albumCount: count, profile: data.profile || null, fb: data.fb });
+      setDirty(0);
+      setSettings(false);
+    } catch (err) {
+      setError("Die Datei konnte nicht gelesen werden.");
+    }
+  }
+
+  const entry = queue[qIndex];
+  const attrs = entry?.attrs || {};
+  const flagged = (f) => Array.isArray(attrs.unsicher) && attrs.unsicher.includes(f);
+  const setP = async (patch) => {
+    const p = { ...(profile || {}), ...patch };
+    setProfile(p);
+    await persist({ profile: p });
+  };
+
+  /* ------------------------- Erste Einrichtung ---------------------- */
+  if (!loading && !profile?.silhouette) {
+    return (
+      <div style={{ background: C.bg, color: C.text, fontFamily: SANS, minHeight: "100vh" }} className="p-6 flex flex-col justify-center">
+        <style>{FONTS}</style>
+        <h1 style={{ fontFamily: DISPLAY, fontSize: 48, lineHeight: 1 }}>Rack</h1>
+        <p style={{ color: C.dim }} className="mt-3 text-sm leading-relaxed">
+          Zwei Angaben, dann kann es losgehen. Alles Weitere findest du später unter Profil.
+        </p>
+
+        <div className="mt-7">
+          <Label>Ich bin</Label>
+          <div className="mt-2 flex gap-2">
+            {["männlich", "weiblich"].map((g) => (
+              <button
+                key={g}
+                onClick={() => setProfile({ ...(profile || {}), gender: g })}
+                style={{
+                  background: profile?.gender === g ? C.text : "transparent",
+                  color: profile?.gender === g ? C.bg : C.text,
+                  borderColor: profile?.gender === g ? C.text : C.line,
+                }}
+                className="flex-1 border rounded-sm py-3 text-sm"
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <Label>Wie soll kombiniert werden</Label>
+          <div className="mt-2 flex flex-col gap-2">
+            {SILHOUETTES.map((s) => (
+              <button
+                key={s.key}
+                onClick={() => setP({ silhouette: s.key, gender: profile?.gender || "männlich", height: 180, build: "normal", torso: "ausgeglichen", glasses: false, notes: "" })}
+                disabled={!profile?.gender}
+                style={{ background: C.surface, borderColor: C.line, color: C.text, opacity: profile?.gender ? 1 : 0.4 }}
+                className="border rounded-sm p-4 text-left"
+              >
+                <span className="block text-base">{s.label}</span>
+                <span style={{ color: C.dim }} className="text-xs">{s.hint}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: C.bg, color: C.text, fontFamily: SANS, minHeight: "100vh" }}>
+      <style>{FONTS}</style>
+
+      <header style={{ borderColor: C.line, background: `${C.bg}f5` }} className="sticky top-0 z-20 border-b px-5 pt-5 pb-3">
+        <div className="flex items-end justify-between">
+          <h1 style={{ fontFamily: DISPLAY, fontSize: 30, lineHeight: 0.9 }}>Rack</h1>
+          <button onClick={() => setSettings(true)} style={{ color: C.dim, letterSpacing: "0.18em" }} className="text-[10px] uppercase pb-1">Profil</button>
+        </div>
+        <nav className="mt-4 flex gap-6">
+          {[["heute", "Heute"], ["schrank", `Schrank ${items.length}`], ["fehlt", "Fehlt"]].map(([k, l]) => (
+            <button
+              key={k}
+              onClick={() => setView(k)}
+              style={{ color: view === k ? C.text : C.faint, borderColor: view === k ? C.text : "transparent", letterSpacing: "0.18em" }}
+              className="text-[10px] uppercase pb-2 border-b"
+            >
+              {l}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      {noStore && (
+        <div style={{ borderColor: C.line, background: C.surface }} className="border-b px-5 py-3 flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <Label>Sitzungsmodus</Label>
+            <p style={{ color: dirty > 0 ? C.signal : C.dim }} className="text-xs mt-1">
+              {dirty > 0 ? `${dirty} Änderungen nicht gesichert` : "nichts zu sichern"}
+            </p>
+          </div>
+          <button onClick={exportAll} style={{ borderColor: C.line, color: C.text, letterSpacing: "0.14em" }} className="px-3 py-2 text-[10px] uppercase border">
+            Sichern
+          </button>
+          <button onClick={() => importRef.current?.click()} style={{ borderColor: C.line, color: C.dim, letterSpacing: "0.14em" }} className="px-3 py-2 text-[10px] uppercase border">
+            Laden
+          </button>
+        </div>
+      )}
+
+      {(busy || error) && (
+        <div className="px-5 pt-4">
+          {busy && <p style={{ color: C.dim, letterSpacing: "0.18em" }} className="text-[10px] uppercase">{busy}</p>}
+          {error && <p style={{ color: C.signal }} className="text-sm mt-1">{error}</p>}
+        </div>
+      )}
+
+      {/* ─────────────────────────── Heute ──────────────────────────── */}
+      {view === "heute" && (
+        <main className="px-5 pb-32 pt-5">
+          <div className="flex flex-wrap gap-2">
+            {OCCASIONS.map((o) => (
+              <button
+                key={o.key}
+                onClick={() => setOccasion(o.key)}
+                style={{
+                  background: occasion === o.key ? C.text : "transparent",
+                  color: occasion === o.key ? C.bg : C.dim,
+                  borderColor: occasion === o.key ? C.text : C.line,
+                  letterSpacing: "0.14em",
+                }}
+                className="px-3 py-2 text-[10px] uppercase border rounded-full"
+              >
+                {o.key}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-6 flex items-baseline gap-3">
+            <span style={{ fontFamily: DISPLAY, fontSize: 54, lineHeight: 1 }}>{temp}</span>
+            <Label>Grad draußen</Label>
+          </div>
+          <input type="range" min="-10" max="35" value={temp} onChange={(e) => setTemp(Number(e.target.value))} className="w-full mt-2" style={{ accentColor: C.text }} />
+
+          {anchor && (
+            <div className="mt-4 flex items-center justify-between">
+              <Label>Anker {items.find((i) => i.id === anchor)?.name}</Label>
+              <button onClick={() => setAnchor(null)} style={{ color: C.signal, letterSpacing: "0.16em" }} className="text-[10px] uppercase">lösen</button>
+            </div>
+          )}
+
+          <button onClick={suggest} disabled={!!busy} style={{ background: C.text, color: C.bg, letterSpacing: "0.2em" }} className="mt-6 w-full py-4 text-[11px] uppercase">
+            Outfits zeigen
+          </button>
+
+          {relaxed && outfits.length > 0 && (
+            <p style={{ color: C.dim }} className="mt-4 text-xs leading-relaxed">
+              Mit strengen Regeln blieb zu wenig übrig, deshalb wurden die Grenzen für diesen Durchlauf gelockert.
+              Mehr Teile im Schrank lösen das.
+            </p>
+          )}
+
+          {outfits.map((o, i) => {
+            const parts = o.cand.parts;
+            return (
+              <section key={i} style={{ borderColor: C.line }} className="mt-10 border-t pt-5">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <Label>Vorschlag {i + 1}</Label>
+                    <h2 style={{ fontFamily: DISPLAY, fontSize: 26 }} className="mt-1">{o.titel}</h2>
+                  </div>
+                  <span style={{ fontFamily: DISPLAY, fontSize: 34, color: C.dim }}>{Math.round(o.cand.score.total * 100)}</span>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  {parts.map((p) => (
+                    <div key={p.id}>
+                      <div style={{ background: C.surface }} className="aspect-square flex items-center justify-center overflow-hidden">
+                        {images[p.id] && <img src={images[p.id]} alt={p.name} className="w-full h-full object-contain" />}
+                      </div>
+                      <p className="text-xs mt-2 truncate">{p.name}</p>
+                      <Label>{p.fit}</Label>
+                    </div>
+                  ))}
+                </div>
+
+                {o.begruendung && <p style={{ color: C.dim }} className="text-sm mt-4 leading-relaxed">{o.begruendung}</p>}
+
+                {Array.isArray(o.styling) && o.styling.length > 0 && (
+                  <div style={{ borderColor: C.line }} className="mt-5 border-t pt-4">
+                    <Label>So tragen</Label>
+                    <ol className="mt-3 space-y-3">
+                      {o.styling.map((s, n) => (
+                        <li key={n} className="flex gap-3">
+                          <span style={{ fontFamily: DISPLAY, color: C.faint, fontSize: 18, lineHeight: 1.1 }}>{n + 1}</span>
+                          <span className="text-sm leading-relaxed">{s}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+
+                {o.trendhinweis && (
+                  <p style={{ color: C.dim }} className="text-xs mt-4 leading-relaxed">
+                    <Label>Aktuell</Label> <span className="block mt-1">{o.trendhinweis}</span>
+                  </p>
+                )}
+
+                <div className="mt-5 space-y-2">
+                  {[["Silhouette", "silhouette"], ["Proportion", "proportion"], ["Farbe", "color"], ["Wetter", "warmth"], ["Anlass", "formality"], ["Schuhe", "shoes"]].map(([l, k]) => (
+                    <div key={k} className="flex items-center gap-3">
+                      <Label style={{ width: 74 }}>{l}</Label>
+                      <div style={{ background: C.surface }} className="flex-1 h-px">
+                        <div style={{ background: o.cand.score.sub[k] >= 0.7 ? C.text : o.cand.score.sub[k] >= 0.45 ? C.dim : C.signal, width: `${Math.round(o.cand.score.sub[k] * 100)}%`, height: 1 }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-5 flex gap-2">
+                  <button onClick={() => worn(parts.map((p) => p.id))} style={{ background: C.text, color: C.bg, letterSpacing: "0.16em" }} className="flex-1 py-3 text-[10px] uppercase">Getragen</button>
+                  <button onClick={() => rate(parts, "gut")} style={{ borderColor: C.line, color: C.text, letterSpacing: "0.16em" }} className="px-4 py-3 text-[10px] uppercase border">Gut</button>
+                  <button onClick={() => rate(parts, "schlecht")} style={{ borderColor: C.line, color: C.signal, letterSpacing: "0.16em" }} className="px-4 py-3 text-[10px] uppercase border">Nein</button>
+                </div>
+              </section>
+            );
+          })}
+        </main>
+      )}
+
+      {/* ────────────────────────── Schrank ─────────────────────────── */}
+      {view === "schrank" && (
+        <main className="px-5 pb-32 pt-5">
+          {loading && <Label>lädt</Label>}
+          {!loading && items.length === 0 && (
+            <div className="py-14 text-center">
+              <p style={{ fontFamily: DISPLAY, fontSize: 24 }}>Der Schrank ist leer</p>
+              <p style={{ color: C.dim }} className="text-sm mt-3 leading-relaxed">
+                Fotografiere deine Teile einzeln auf hellem, ruhigem Untergrund. Mehrere Fotos auf einmal sind kein
+                Problem, du bestätigst danach der Reihe nach.
+              </p>
+              <button onClick={() => setGuide(true)} style={{ borderColor: C.line, color: C.text, letterSpacing: "0.16em" }} className="mt-5 px-4 py-3 text-[10px] uppercase border">
+                Wie fotografieren
+              </button>
+            </div>
+          )}
+          <div className="grid grid-cols-3 gap-3">
+            {items.map((it) => (
+              <button key={it.id} onClick={() => setDetail(it)} className="text-left">
+                <div style={{ background: C.surface, opacity: it.paused ? 0.35 : 1 }} className="aspect-square overflow-hidden flex items-center justify-center">
+                  {images[it.id] ? <img src={images[it.id]} alt={it.name} className="w-full h-full object-contain" /> : <Label>lädt</Label>}
+                </div>
+                <p className="text-[11px] mt-2 truncate">{it.name}</p>
+                <Label>{it.fit}</Label>
+              </button>
+            ))}
+          </div>
+        </main>
+      )}
+
+      {/* ──────────────────────────── Fehlt ─────────────────────────── */}
+      {view === "fehlt" && (
+        <main className="px-5 pb-32 pt-5">
+          <p style={{ color: C.dim }} className="text-sm leading-relaxed">
+            Die Analyse legt testweise einzelne Teile in deinen Schrank und misst, wie viele zusätzliche gute
+            Kombinationen dadurch entstehen. Empfohlen wird nur, was rechnerisch etwas bringt.
+          </p>
+          <button onClick={runGaps} disabled={!!busy || items.length < 6} style={{ background: C.text, color: C.bg, letterSpacing: "0.2em", opacity: items.length < 6 ? 0.4 : 1 }} className="mt-5 w-full py-4 text-[11px] uppercase">
+            Analyse starten
+          </button>
+          {items.length < 6 && <p style={{ color: C.faint }} className="mt-3 text-xs">Ab etwa sechs Teilen wird die Rechnung aussagekräftig.</p>}
+
+          {gaps?.empfehlungen?.map((r, i) => (
+            <section key={i} style={{ borderColor: C.line }} className="mt-8 border-t pt-5">
+              <div className="flex items-start justify-between gap-3">
+                <h3 style={{ fontFamily: DISPLAY, fontSize: 22 }}>{r.teil}</h3>
+                <span style={{ fontFamily: DISPLAY, fontSize: 26, color: C.dim }}>+{r.gewinn}</span>
+              </div>
+              <Label>neue Outfits</Label>
+              <p className="text-sm mt-3 leading-relaxed">{r.warum}</p>
+              {r.preisspanne && <p style={{ color: C.dim }} className="text-xs mt-2">{r.preisspanne}</p>}
+              {Array.isArray(r.beispiele) && r.beispiele.length > 0 && (
+                <ul className="mt-3 space-y-1">
+                  {r.beispiele.map((b, n) => (
+                    <li key={n} className="text-sm">
+                      <span style={{ color: C.dim }}>{b.marke}</span> {b.modell}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ))}
+
+          {gaps?.waisen?.length > 0 && (
+            <section style={{ borderColor: C.line }} className="mt-10 border-t pt-5">
+              <Label>Liegt ungenutzt</Label>
+              {gaps.waisen.map((w, i) => (
+                <div key={i} className="mt-4">
+                  <p className="text-sm font-medium">{w.teil}</p>
+                  <p style={{ color: C.dim }} className="text-sm leading-relaxed">{w.diagnose}</p>
+                </div>
+              ))}
+            </section>
+          )}
+
+          {gaps?.hinweis && <p style={{ color: C.faint }} className="mt-8 text-xs leading-relaxed">{gaps.hinweis}</p>}
+        </main>
+      )}
+
+      {/* ───────────────────────── Erfassen-Leiste ──────────────────── */}
+      {view !== "fehlt" && (
+        <div className="fixed bottom-0 left-0 right-0 px-5 pb-5 pt-3" style={{ background: `linear-gradient(to top, ${C.bg} 62%, transparent)` }}>
+          <input ref={fileRef} type="file" accept="image/*" multiple onChange={onFiles} className="hidden" />
+          <div className="flex gap-2">
+            <button onClick={() => fileRef.current?.click()} disabled={!!busy} style={{ borderColor: C.text, color: C.text, letterSpacing: "0.2em" }} className="flex-1 py-4 text-[11px] uppercase border">
+              Teile erfassen
+            </button>
+            <button onClick={() => setGuide(true)} style={{ borderColor: C.line, color: C.dim }} className="px-4 py-4 text-[11px] uppercase border">?</button>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────── Prüfkarte ──────────────────────── */}
+      {entry && (
+        <div style={{ background: C.bg }} className="fixed inset-0 z-40 overflow-y-auto">
+          <div className="px-5 pt-6 pb-24">
+            <div className="flex items-center justify-between">
+              <Label>Teil {qIndex + 1} von {queue.length}</Label>
+              <button onClick={() => { setQueue([]); setQIndex(0); }} style={{ color: C.dim, letterSpacing: "0.16em" }} className="text-[10px] uppercase">abbrechen</button>
+            </div>
+
+            <div style={{ background: C.surface }} className="mt-4 aspect-square flex items-center justify-center overflow-hidden">
+              <img src={entry.url} alt="" className="w-full h-full object-contain" />
+            </div>
+            {!entry.cutout && <p style={{ color: C.faint }} className="mt-2 text-xs">Hintergrund war zu unruhig zum Freistellen. Das Originalfoto bleibt erhalten.</p>}
+
+            {entry.state !== "fertig" && entry.state !== "fehler" && <p style={{ color: C.dim }} className="mt-5 text-sm">Wird gelesen.</p>}
+
+            {(entry.state === "fertig" || entry.state === "fehler") && (
+              <>
+                <input
+                  value={attrs.name || ""}
+                  onChange={(e) => patchQueue({ name: e.target.value })}
+                  placeholder="Bezeichnung"
+                  style={{ background: "transparent", color: C.text, borderColor: C.line, fontFamily: DISPLAY, fontSize: 26 }}
+                  className="w-full mt-5 border-b pb-2"
+                />
+
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <Field label="Kategorie" value={attrs.category} options={CATEGORIES} flagged={flagged("category")} onChange={(v) => patchQueue({ category: v })} />
+                  {attrs.category === "Accessoire" ? (
+                    <Field label="Art" value={attrs.subcategory} options={ACCESSORY_TYPES} flagged={flagged("subcategory")} onChange={(v) => patchQueue({ subcategory: v })} />
+                  ) : (
+                    <Field label="Schnitt" value={attrs.fit} options={FITS} flagged={flagged("fit")} onChange={(v) => patchQueue({ fit: v })} />
+                  )}
+                  {attrs.category !== "Accessoire" && attrs.category !== "Schuhe" && (
+                    <Field label="Länge" value={attrs.length} options={attrs.category === "Unterteil" ? BOTTOM_LEN : TOP_LEN} flagged={flagged("length")} onChange={(v) => patchQueue({ length: v })} />
+                  )}
+                  {attrs.category === "Unterteil" && <Field label="Bundhöhe" value={attrs.rise} options={RISES} flagged={flagged("rise")} onChange={(v) => patchQueue({ rise: v })} />}
+                  {attrs.category === "Schuhe" && <Field label="Gewicht" value={attrs.shoeWeight} options={SHOE_WEIGHT} flagged={flagged("shoeWeight")} onChange={(v) => patchQueue({ shoeWeight: v })} />}
+                  <Field label="Dicke" value={attrs.thickness} options={THICKNESS} flagged={flagged("thickness")} onChange={(v) => patchQueue({ thickness: v })} />
+                  <Field label="Muster" value={attrs.pattern} options={PATTERNS} flagged={flagged("pattern")} onChange={(v) => patchQueue({ pattern: v })} />
+                </div>
+
+                <div className="mt-4 flex items-center gap-3">
+                  <span style={{ background: attrs.colorHex || "#888", borderColor: C.line }} className="w-8 h-8 rounded-full border" />
+                  <div className="flex-1">
+                    <Label>Farbe</Label>
+                    <input value={attrs.colorName || ""} onChange={(e) => patchQueue({ colorName: e.target.value })} style={{ background: "transparent", color: C.text, borderColor: C.line }} className="w-full border-b text-sm pb-1" />
+                  </div>
+                  <input type="color" value={attrs.colorHex || "#888888"} onChange={(e) => patchQueue({ colorHex: e.target.value })} className="w-10 h-10 bg-transparent" />
+                </div>
+
+                <p style={{ color: C.faint }} className="mt-4 text-xs leading-relaxed">
+                  Wärme und Formalität werden aus Art, Material und Dicke berechnet und lassen sich später im Detail überschreiben.
+                </p>
+
+                <div className="mt-6 flex gap-2">
+                  <button onClick={saveCurrent} style={{ background: C.text, color: C.bg, letterSpacing: "0.18em" }} className="flex-1 py-4 text-[11px] uppercase">Speichern</button>
+                  <button onClick={nextCard} style={{ borderColor: C.line, color: C.dim, letterSpacing: "0.18em" }} className="px-5 py-4 text-[11px] uppercase border">Weg</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ───────────────────────── Fotoanleitung ────────────────────── */}
+      {guide && (
+        <div className="fixed inset-0 z-40 flex items-end" style={{ background: "#000000cc" }}>
+          <div style={{ background: C.surface, borderColor: C.line }} className="w-full max-h-[88vh] overflow-y-auto border-t p-5">
+            <div className="flex justify-between items-start">
+              <h2 style={{ fontFamily: DISPLAY, fontSize: 26 }}>Fotografieren</h2>
+              <button onClick={() => setGuide(false)} style={{ color: C.dim, letterSpacing: "0.16em" }} className="text-[10px] uppercase">schließen</button>
+            </div>
+            {PHOTO_GUIDE.map(([t, d]) => (
+              <div key={t} className="mt-5">
+                <Label>{t}</Label>
+                <p className="text-sm mt-1 leading-relaxed">{d}</p>
+              </div>
+            ))}
+            <p style={{ color: C.faint }} className="mt-6 mb-2 text-xs leading-relaxed">
+              Je sauberer der Untergrund, desto zuverlässiger das automatische Freistellen. Bei gemustertem Boden
+              bleibt das Originalfoto stehen, das ist kein Fehler.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ──────────────────────────── Detail ────────────────────────── */}
+      {detail && (
+        <div className="fixed inset-0 z-40 flex items-end" style={{ background: "#000000cc" }}>
+          <div style={{ background: C.surface, borderColor: C.line }} className="w-full max-h-[90vh] overflow-y-auto border-t p-5">
+            <div className="flex justify-between items-start">
+              <div>
+                <Label>{detail.subcategory || detail.category}</Label>
+                <h2 style={{ fontFamily: DISPLAY, fontSize: 26 }}>{detail.name}</h2>
+              </div>
+              <button onClick={() => setDetail(null)} style={{ color: C.dim, letterSpacing: "0.16em" }} className="text-[10px] uppercase">schließen</button>
+            </div>
+
+            {images[detail.id] && (
+              <div style={{ background: C.bg }} className="mt-4 aspect-square flex items-center justify-center overflow-hidden">
+                <img src={images[detail.id]} alt={detail.name} className="w-full h-full object-contain" />
+              </div>
+            )}
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <Field label="Kategorie" value={detail.category} options={CATEGORIES} onChange={(v) => updateItem(detail.id, { category: v })} />
+              {detail.category === "Accessoire" ? (
+                <Field label="Art" value={detail.subcategory} options={ACCESSORY_TYPES} onChange={(v) => updateItem(detail.id, { subcategory: v })} />
+              ) : (
+                <Field label="Schnitt" value={detail.fit} options={FITS} onChange={(v) => updateItem(detail.id, { fit: v })} />
+              )}
+              {detail.category !== "Accessoire" && detail.category !== "Schuhe" && (
+                <Field label="Länge" value={detail.length} options={detail.category === "Unterteil" ? BOTTOM_LEN : TOP_LEN} onChange={(v) => updateItem(detail.id, { length: v })} />
+              )}
+              {detail.category === "Unterteil" && <Field label="Bundhöhe" value={detail.rise} options={RISES} onChange={(v) => updateItem(detail.id, { rise: v })} />}
+              {detail.category === "Schuhe" && <Field label="Gewicht" value={detail.shoeWeight} options={SHOE_WEIGHT} onChange={(v) => updateItem(detail.id, { shoeWeight: v })} />}
+            </div>
+
+            <div className="mt-5">
+              <Label>Wärme {detail.warmth} von 5</Label>
+              <input type="range" min="0.5" max="5" step="0.5" value={detail.warmth} onChange={(e) => updateItem(detail.id, { warmth: Number(e.target.value) })} className="w-full" style={{ accentColor: C.text }} />
+            </div>
+            <div className="mt-3">
+              <Label>Formalität {detail.formality} von 5</Label>
+              <input type="range" min="1" max="5" step="0.5" value={detail.formality} onChange={(e) => updateItem(detail.id, { formality: Number(e.target.value) })} className="w-full" style={{ accentColor: C.text }} />
+            </div>
+
+            <div className="mt-5 flex items-center justify-between">
+              <Label>{detail.wearCount || 0} mal getragen</Label>
+              <button onClick={() => updateItem(detail.id, { paused: !detail.paused })} style={{ color: detail.paused ? C.signal : C.dim, letterSpacing: "0.16em" }} className="text-[10px] uppercase">
+                {detail.paused ? "in der Wäsche" : "verfügbar"}
+              </button>
+            </div>
+
+            <div className="mt-6 flex gap-2 pb-3">
+              <button onClick={() => { setAnchor(detail.id); setDetail(null); setView("heute"); }} style={{ background: C.text, color: C.bg, letterSpacing: "0.16em" }} className="flex-1 py-4 text-[10px] uppercase">
+                Outfit hierzu
+              </button>
+              <button onClick={() => removeItem(detail.id)} style={{ borderColor: C.line, color: C.signal, letterSpacing: "0.16em" }} className="px-5 py-4 text-[10px] uppercase border">Löschen</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ──────────────────────────── Profil ────────────────────────── */}
+      {settings && (
+        <div className="fixed inset-0 z-40 flex items-end" style={{ background: "#000000cc" }}>
+          <div style={{ background: C.surface, borderColor: C.line }} className="w-full max-h-[92vh] overflow-y-auto border-t p-5">
+            <div className="flex justify-between items-start">
+              <h2 style={{ fontFamily: DISPLAY, fontSize: 26 }}>Profil</h2>
+              <button onClick={() => { setSettings(false); setBodyDraft(null); }} style={{ color: C.dim, letterSpacing: "0.16em" }} className="text-[10px] uppercase">schließen</button>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-2">
+              {SILHOUETTES.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => setP({ silhouette: s.key })}
+                  style={{
+                    background: profile?.silhouette === s.key ? C.text : "transparent",
+                    color: profile?.silhouette === s.key ? C.bg : C.text,
+                    borderColor: profile?.silhouette === s.key ? C.text : C.line,
+                  }}
+                  className="border rounded-sm p-3 text-left"
+                >
+                  <span className="block text-sm">{s.label}</span>
+                  <span style={{ opacity: 0.7 }} className="text-xs">{s.hint}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-6">
+              <Label>Körpergröße {profile?.height || 180} cm</Label>
+              <input type="range" min="150" max="205" value={profile?.height || 180} onChange={(e) => setP({ height: Number(e.target.value) })} className="w-full mt-1" style={{ accentColor: C.text }} />
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <Field label="Statur" value={profile?.build} options={BUILDS} onChange={(v) => setP({ build: v })} />
+              <Field label="Verhältnis" value={profile?.torso} options={TORSOS} onChange={(v) => setP({ torso: v })} />
+            </div>
+
+            <div className="mt-4 flex items-center justify-between">
+              <Label>Brille</Label>
+              <button onClick={() => setP({ glasses: !profile?.glasses })} style={{ borderColor: C.line, color: profile?.glasses ? C.text : C.faint, letterSpacing: "0.16em" }} className="px-4 py-2 text-[10px] uppercase border">
+                {profile?.glasses ? "ja" : "nein"}
+              </button>
+            </div>
+
+            <div style={{ borderColor: C.line }} className="mt-6 border-t pt-5">
+              <Label>Statur automatisch bestimmen</Label>
+              <p style={{ color: C.dim }} className="text-xs mt-2 leading-relaxed">
+                Ganzkörperfoto, frontal, aufrecht vor einer möglichst leeren Wand, eng anliegende Kleidung, Arme
+                leicht abgespreizt, Handy auf Bauchnabelhöhe und nicht von schräg oben. Das Foto wird nur zur
+                Analyse übertragen und danach verworfen, es wird nirgends gespeichert.
+              </p>
+              <input ref={bodyRef} type="file" accept="image/*" onChange={onBodyPhoto} className="hidden" />
+              <button onClick={() => bodyRef.current?.click()} disabled={!!busy} style={{ borderColor: C.line, color: C.text, letterSpacing: "0.16em" }} className="mt-3 w-full py-3 text-[10px] uppercase border">
+                Foto auswählen
+              </button>
+
+              {bodyDraft && (
+                <div style={{ background: C.raised, borderColor: C.line }} className="mt-4 border rounded-sm p-4">
+                  <Label>Erkannt, bitte prüfen</Label>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <Field label="Statur" value={bodyDraft.build} options={BUILDS} onChange={(v) => setBodyDraft({ ...bodyDraft, build: v })} />
+                    <Field label="Verhältnis" value={bodyDraft.torso} options={TORSOS} onChange={(v) => setBodyDraft({ ...bodyDraft, torso: v })} />
+                  </div>
+                  {bodyDraft.hinweis && <p style={{ color: C.dim }} className="text-xs mt-3 leading-relaxed">{bodyDraft.hinweis}</p>}
+                  {bodyDraft.confidence < 0.6 && <p style={{ color: C.signal }} className="text-xs mt-2">Die Einschätzung ist unsicher. Prüfe sie besonders genau.</p>}
+                  <button onClick={async () => { await setP({ build: bodyDraft.build, torso: bodyDraft.torso }); setBodyDraft(null); }} style={{ background: C.text, color: C.bg, letterSpacing: "0.16em" }} className="mt-4 w-full py-3 text-[10px] uppercase">
+                    Übernehmen
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6">
+              <Label>Eigene Vorgaben</Label>
+              <textarea
+                value={profile?.notes || ""}
+                onChange={(e) => setP({ notes: e.target.value })}
+                placeholder="Hosen immer mit Stack über dem Schuh. Kein Braun zu Schwarz."
+                style={{ background: C.raised, color: C.text, borderColor: C.line }}
+                className="w-full mt-2 border rounded-sm p-3 text-sm h-24"
+              />
+            </div>
+
+            <div className="mt-6">
+              <Label>Gelernt: {fb.liked.length} bestätigt, {fb.disliked.length} abgelehnt</Label>
+              {trends && <p style={{ color: C.faint }} className="text-xs mt-2">Trendstand {trends.stand}, zuletzt geholt vor {Math.round((Date.now() - trends.abgerufen) / 86400000)} Tagen.</p>}
+              <p style={{ color: C.faint }} className="text-xs mt-2">Speicher: {store.mode ? store.mode : "nur diese Sitzung"}</p>
+              <button
+                onClick={async () => { setBusy("Prüfe Speicher"); setDiag(await diagnose()); setBusy(""); }}
+                style={{ borderColor: C.line, color: C.dim, letterSpacing: "0.16em" }}
+                className="mt-3 px-4 py-2 text-[10px] uppercase border"
+              >
+                Speicher prüfen
+              </button>
+              {diag && (
+                <div style={{ background: C.raised, borderColor: C.line }} className="mt-3 border rounded-sm p-3">
+                  {diag.map((d, i) => (
+                    <p key={i} style={{ color: C.dim }} className="text-[11px] leading-snug mt-1 break-words">
+                      <span style={{ color: C.text }}>{d.label}</span> {d.info}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex gap-2 pb-3">
+              <button onClick={exportAll} style={{ borderColor: C.line, color: C.text, letterSpacing: "0.16em" }} className="flex-1 py-4 text-[10px] uppercase border">Export</button>
+              <input ref={importRef} type="file" accept="application/json" onChange={importAll} className="hidden" />
+              <button onClick={() => importRef.current?.click()} style={{ borderColor: C.line, color: C.text, letterSpacing: "0.16em" }} className="flex-1 py-4 text-[10px] uppercase border">Import</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=Archivo:wght@400;500;600&display=swap');
+input[type=range]{height:2px;background:#2f2f2f;-webkit-appearance:none;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#ece8e2;}
+select{-webkit-appearance:none;appearance:none;}
+*:focus-visible{outline:1px solid #ece8e2;outline-offset:2px;}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important;}}`;

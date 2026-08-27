@@ -1,0 +1,301 @@
+"""SQLite mit WAL. Einzige Stelle, an der snake_case und camelCase
+aufeinandertreffen.
+
+Die Engine und die API sprechen die camelCase-Form des Prototypen, die
+Tabellen die snake_case-Form aus dem Briefing. Die Umsetzung passiert nur
+hier, damit kein Aufrufer beide Formen kennen muss.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import threading
+import uuid
+from datetime import datetime, timezone
+from typing import Any
+
+from .config import settings
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS items (
+  id              TEXT PRIMARY KEY,
+  name            TEXT,
+  category        TEXT,
+  subcategory     TEXT,
+  color_hex       TEXT,
+  color_name      TEXT,
+  pattern         TEXT,
+  pattern_scale   TEXT,
+  material        TEXT,
+  thickness       TEXT,
+  texture         TEXT,
+  fit             TEXT,
+  length          TEXT,
+  rise            TEXT,
+  sleeve          TEXT,
+  shoe_weight     TEXT,
+  warmth          REAL,
+  formality       REAL,
+  warmth_manual   INTEGER NOT NULL DEFAULT 0,
+  formality_manual INTEGER NOT NULL DEFAULT 0,
+  image_path      TEXT,
+  cutout          INTEGER NOT NULL DEFAULT 0,
+  paused          INTEGER NOT NULL DEFAULT 0,
+  last_worn       TEXT,
+  wear_count      INTEGER NOT NULL DEFAULT 0,
+  created_at      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS profile (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  gender     TEXT,
+  height     INTEGER,
+  build      TEXT,
+  torso      TEXT,
+  glasses    INTEGER NOT NULL DEFAULT 0,
+  silhouette TEXT,
+  notes      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS feedback (
+  pair_key   TEXT PRIMARY KEY,
+  verdict    TEXT NOT NULL CHECK (verdict IN ('liked', 'disliked')),
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS outfit_log (
+  id       TEXT PRIMARY KEY,
+  worn_at  TEXT NOT NULL,
+  item_ids TEXT NOT NULL,
+  occasion TEXT,
+  temp     REAL,
+  score    REAL
+);
+
+CREATE TABLE IF NOT EXISTS trends_cache (
+  id         TEXT PRIMARY KEY,
+  payload    TEXT NOT NULL,
+  fetched_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS items_category ON items (category);
+CREATE INDEX IF NOT EXISTS outfit_log_worn ON outfit_log (worn_at);
+"""
+
+# DB-Spalte -> Feldname in Engine und API
+FIELDS = [
+    ("id", "id"), ("name", "name"), ("category", "category"),
+    ("subcategory", "subcategory"), ("color_hex", "colorHex"),
+    ("color_name", "colorName"), ("pattern", "pattern"),
+    ("pattern_scale", "patternScale"), ("material", "material"),
+    ("thickness", "thickness"), ("texture", "texture"), ("fit", "fit"),
+    ("length", "length"), ("rise", "rise"), ("sleeve", "sleeve"),
+    ("shoe_weight", "shoeWeight"), ("warmth", "warmth"),
+    ("formality", "formality"), ("warmth_manual", "warmthManual"),
+    ("formality_manual", "formalityManual"), ("image_path", "imagePath"),
+    ("cutout", "cutout"), ("paused", "paused"), ("last_worn", "lastWorn"),
+    ("wear_count", "wearCount"), ("created_at", "createdAt"),
+]
+COL_TO_KEY = dict(FIELDS)
+KEY_TO_COL = {k: c for c, k in FIELDS}
+
+_local = threading.local()
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def new_id(prefix: str = "it") -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:16]}"
+
+
+def connect() -> sqlite3.Connection:
+    """Eine Verbindung pro Thread. FastAPI bedient Requests aus einem Pool,
+    und SQLite-Verbindungen sind nicht threadsicher."""
+    conn = getattr(_local, "conn", None)
+    if conn is None:
+        settings.ensure_dirs()
+        conn = sqlite3.connect(settings.db_path, timeout=15)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        _local.conn = conn
+    return conn
+
+
+def init() -> None:
+    conn = connect()
+    with conn:
+        conn.executescript(SCHEMA)
+
+
+# ── Umsetzung zwischen Zeile und Objekt ─────────────────────────────────
+
+def row_to_item(row: sqlite3.Row) -> dict[str, Any]:
+    item = {COL_TO_KEY[c]: row[c] for c in row.keys() if c in COL_TO_KEY}
+    for flag in ("cutout", "paused", "warmthManual", "formalityManual"):
+        item[flag] = bool(item.get(flag))
+    return item
+
+
+def item_to_row(item: dict[str, Any]) -> dict[str, Any]:
+    row: dict[str, Any] = {}
+    for col, key in FIELDS:
+        if key not in item:
+            continue
+        value = item[key]
+        if key in ("cutout", "paused", "warmthManual", "formalityManual"):
+            value = 1 if value else 0
+        row[col] = value
+    return row
+
+
+# ── Items ───────────────────────────────────────────────────────────────
+
+def list_items() -> list[dict[str, Any]]:
+    return [row_to_item(r) for r in
+            connect().execute("SELECT * FROM items ORDER BY created_at DESC")]
+
+
+def get_item(item_id: str) -> dict[str, Any] | None:
+    row = connect().execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+    return row_to_item(row) if row else None
+
+
+def insert_item(item: dict[str, Any]) -> dict[str, Any]:
+    row = item_to_row(item)
+    row.setdefault("id", new_id())
+    row.setdefault("created_at", now_iso())
+    cols = ", ".join(row)
+    marks = ", ".join(f":{c}" for c in row)
+    conn = connect()
+    with conn:
+        conn.execute(f"INSERT INTO items ({cols}) VALUES ({marks})", row)
+    return get_item(row["id"])
+
+
+def update_item(item_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+    row = item_to_row(patch)
+    row.pop("id", None)
+    row.pop("created_at", None)
+    if not row:
+        return get_item(item_id)
+    sets = ", ".join(f"{c} = :{c}" for c in row)
+    conn = connect()
+    with conn:
+        conn.execute(f"UPDATE items SET {sets} WHERE id = :id", {**row, "id": item_id})
+    return get_item(item_id)
+
+
+def delete_item(item_id: str) -> bool:
+    conn = connect()
+    with conn:
+        cur = conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
+    return cur.rowcount > 0
+
+
+# ── Profil ──────────────────────────────────────────────────────────────
+
+PROFILE_DEFAULT = {"gender": "männlich", "height": 180, "build": "normal",
+                   "torso": "ausgeglichen", "glasses": False,
+                   "silhouette": "frei", "notes": ""}
+
+
+def get_profile() -> dict[str, Any]:
+    row = connect().execute("SELECT * FROM profile WHERE id = 1").fetchone()
+    if not row:
+        return dict(PROFILE_DEFAULT)
+    p = {k: row[k] for k in row.keys() if k != "id"}
+    p["glasses"] = bool(p.get("glasses"))
+    return p
+
+
+def save_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    merged = {**get_profile(), **{k: v for k, v in profile.items() if k in PROFILE_DEFAULT}}
+    merged["glasses"] = 1 if merged.get("glasses") else 0
+    conn = connect()
+    with conn:
+        conn.execute(
+            """INSERT INTO profile (id, gender, height, build, torso, glasses, silhouette, notes)
+               VALUES (1, :gender, :height, :build, :torso, :glasses, :silhouette, :notes)
+               ON CONFLICT(id) DO UPDATE SET
+                 gender=excluded.gender, height=excluded.height, build=excluded.build,
+                 torso=excluded.torso, glasses=excluded.glasses,
+                 silhouette=excluded.silhouette, notes=excluded.notes""",
+            merged)
+    return get_profile()
+
+
+# ── Feedback ────────────────────────────────────────────────────────────
+
+def get_feedback() -> dict[str, list[str]]:
+    """Liefert die Form, die die Engine erwartet."""
+    out = {"liked": [], "disliked": []}
+    for row in connect().execute("SELECT pair_key, verdict FROM feedback"):
+        out[row["verdict"]].append(row["pair_key"])
+    return out
+
+
+def set_feedback(pair: str, verdict: str | None) -> None:
+    conn = connect()
+    with conn:
+        if verdict is None:
+            conn.execute("DELETE FROM feedback WHERE pair_key = ?", (pair,))
+        else:
+            conn.execute(
+                """INSERT INTO feedback (pair_key, verdict, updated_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(pair_key) DO UPDATE SET
+                     verdict=excluded.verdict, updated_at=excluded.updated_at""",
+                (pair, verdict, now_iso()))
+
+
+# ── Outfit-Protokoll ────────────────────────────────────────────────────
+
+def log_outfit(item_ids: list[str], occasion: str | None,
+               temp: float | None, score: float | None) -> dict[str, Any]:
+    entry = {"id": new_id("log"), "worn_at": now_iso(),
+             "item_ids": json.dumps(item_ids), "occasion": occasion,
+             "temp": temp, "score": score}
+    conn = connect()
+    with conn:
+        conn.execute(
+            """INSERT INTO outfit_log (id, worn_at, item_ids, occasion, temp, score)
+               VALUES (:id, :worn_at, :item_ids, :occasion, :temp, :score)""", entry)
+        for item_id in item_ids:
+            conn.execute(
+                "UPDATE items SET last_worn = ?, wear_count = wear_count + 1 WHERE id = ?",
+                (entry["worn_at"], item_id))
+    return {**entry, "item_ids": item_ids}
+
+
+def list_outfit_log(limit: int = 200) -> list[dict[str, Any]]:
+    rows = connect().execute(
+        "SELECT * FROM outfit_log ORDER BY worn_at DESC LIMIT ?", (limit,))
+    return [{**{k: r[k] for k in r.keys()}, "item_ids": json.loads(r["item_ids"])}
+            for r in rows]
+
+
+# ── Trends ──────────────────────────────────────────────────────────────
+
+def get_trends() -> dict[str, Any] | None:
+    row = connect().execute(
+        "SELECT * FROM trends_cache ORDER BY fetched_at DESC LIMIT 1").fetchone()
+    if not row:
+        return None
+    return {"payload": json.loads(row["payload"]), "fetched_at": row["fetched_at"]}
+
+
+def save_trends(payload: dict[str, Any]) -> dict[str, Any]:
+    entry = {"id": new_id("tr"), "payload": json.dumps(payload, ensure_ascii=False),
+             "fetched_at": now_iso()}
+    conn = connect()
+    with conn:
+        conn.execute("DELETE FROM trends_cache")
+        conn.execute(
+            "INSERT INTO trends_cache (id, payload, fetched_at) VALUES (:id, :payload, :fetched_at)",
+            entry)
+    return {"payload": payload, "fetched_at": entry["fetched_at"]}

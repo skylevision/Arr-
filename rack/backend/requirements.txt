@@ -1,0 +1,13 @@
+# Fest gepinnt. Update = Version hier bumpen, Image neu bauen, committen.
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+python-multipart==0.0.32
+pillow==12.3.0
+# rembg braucht das cpu-Extra, sonst fehlt onnxruntime
+rembg[cpu]==2.0.81
+onnxruntime==1.29.0
+numpy==2.5.2
+anthropic==1.2.0
+# Das Anthropic-SDK 1.x setzt auf httpx2 auf; der Wetterabruf nutzt
+# dieselbe Bibliothek, damit nicht zwei HTTP-Stacks im Image liegen.
+httpx2==2.12.0

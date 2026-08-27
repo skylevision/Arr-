@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+backend/tests/crosscheck/*.json
+
+# Erzeugnisse der Gegenprobe
+backend/tests/crosscheck/engine.mjs
