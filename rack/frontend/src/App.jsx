@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { api, followIngest, imageUrl, setToken, token } from "./api.js";
+import { api, followIngest, followOutfits, imageUrl, setToken, token } from "./api.js";
 import {
   ACCESSORY_TYPES, BOTTOM_LEN, BUILDS, C, CATEGORIES, DISPLAY, FITS, OCCASIONS,
   PATTERNS, PHOTO_GUIDE, RISES, SANS, SHOE_WEIGHT, SILHOUETTES, THICKNESS,
@@ -69,6 +69,10 @@ export default function App() {
   const [relaxed, setRelaxed] = useState(false);
   const [curated, setCurated] = useState(true);
   const [gaps, setGaps] = useState(null);
+  const [suggesting, setSuggesting] = useState(null);
+  // Was der Nutzer je Vorschlag schon gedrückt hat. Ohne das gibt es
+  // keine Quittung an Ort und Stelle, und man drückt mehrfach.
+  const [outfitState, setOutfitState] = useState({});
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
   const [needToken, setNeedToken] = useState(false);
@@ -77,6 +81,7 @@ export default function App() {
   const bodyRef = useRef(null);
   const importRef = useRef(null);
   const stopIngest = useRef(null);
+  const stopSuggest = useRef(null);
 
   const fail = useCallback((err, fallback) => {
     if (err?.status === 401) {
@@ -106,8 +111,19 @@ export default function App() {
       }
       setLoading(false);
     })();
-    return () => stopIngest.current?.();
+    return () => {
+      stopIngest.current?.();
+      stopSuggest.current?.();
+    };
   }, [reload, fail]);
+
+  /* Quittungen blenden sich von selbst wieder aus. Fehler bleiben stehen,
+     die muss man lesen. */
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = setTimeout(() => setNotice(""), 4000);
+    return () => clearTimeout(t);
+  }, [notice]);
 
   /* Erste Einrichtung ist erst vorbei, wenn eine Silhouette gewaehlt wurde.
      Der Server liefert eine Vorgabe, deshalb merken wir uns die Wahl. */
@@ -216,20 +232,63 @@ export default function App() {
   }
 
   /* --------------------------- Vorschläge --------------------------- */
+  function zeigeErgebnis(res) {
+    setOutfitState({});
+    setOutfits(res?.outfits || []);
+    setRelaxed(!!res?.gelockert);
+    setCurated(res?.kuratiert !== false);
+    if (res?.meldung) setError(res.meldung);
+  }
+
   async function suggest() {
     setError("");
+    setNotice("");
     setOutfits([]);
-    setBusy("Kuratiere");
+    setOutfitState({});
+    stopSuggest.current?.();
+    setSuggesting({ phase: "start", text: "Wird vorbereitet", schritt: 0, gesamt: 3 });
+
+    let job;
     try {
-      const res = await api.outfits({ anlass: occasion, temp, anker: anchor });
-      setOutfits(res.outfits || []);
-      setRelaxed(!!res.gelockert);
-      setCurated(res.kuratiert !== false);
-      if (res.meldung) setError(res.meldung);
+      job = await api.startOutfits({ anlass: occasion, temp, anker: anchor });
     } catch (err) {
-      fail(err, "Die Vorschläge konnten nicht geholt werden.");
+      setSuggesting(null);
+      // Der Vorgangsweg fehlt vielleicht, etwa nach einem Teilupdate.
+      // Dann eben in einem Rutsch, nur ohne Fortschritt.
+      try {
+        setBusy("Kuratiere");
+        zeigeErgebnis(await api.outfits({ anlass: occasion, temp, anker: anchor }));
+      } catch (err2) {
+        fail(err2, "Die Vorschläge konnten nicht geholt werden.");
+      }
+      setBusy("");
+      return;
     }
-    setBusy("");
+
+    stopSuggest.current = followOutfits(job.job, {
+      onProgress: (s) => {
+        setSuggesting({
+          phase: s.phase, text: s.text,
+          schritt: s.schritt ?? 0, gesamt: s.gesamt ?? 3,
+        });
+        // Sobald die Engine gerechnet hat, zeigen wir ihre Rangfolge an.
+        // Die kuratierte Fassung ersetzt sie gleich, aber der Bildschirm
+        // bleibt nicht leer, während das Modell arbeitet.
+        if (s.roh?.outfits?.length) {
+          setOutfits(s.roh.outfits);
+          setRelaxed(!!s.roh.gelockert);
+          setCurated(false);
+        }
+      },
+      onDone: (res) => {
+        setSuggesting(null);
+        zeigeErgebnis(res);
+      },
+      onError: (err) => {
+        setSuggesting(null);
+        fail(err, "Die Vorschläge wurden unterbrochen.");
+      },
+    });
   }
 
   async function useWeather() {
@@ -276,24 +335,43 @@ export default function App() {
     setBusy("");
   }
 
-  async function rate(parts, verdict) {
+  const merke = (i, patch) =>
+    setOutfitState((s) => ({ ...s, [i]: { ...(s[i] || {}), ...patch } }));
+
+  async function rate(i, parts, verdict) {
+    const jetzt = outfitState[i] || {};
+    if (jetzt.laeuft) return;
+    // Nochmal auf dieselbe Taste nimmt die Bewertung zurück.
+    const ziel = jetzt.urteil === verdict ? null : verdict;
+    merke(i, { laeuft: "urteil" });
     try {
       await api.feedback({
         teile: parts.map((p) => p.id),
-        urteil: verdict === "gut" ? "liked" : verdict === "schlecht" ? "disliked" : null,
+        urteil: ziel === "gut" ? "liked" : ziel === "schlecht" ? "disliked" : null,
       });
-      setNotice(verdict === "gut" ? "Gemerkt." : "Kommt seltener.");
+      merke(i, { urteil: ziel, laeuft: null });
+      setNotice(
+        ziel === "gut" ? "Gemerkt, solche Kombinationen kommen öfter."
+          : ziel === "schlecht" ? "Gemerkt, diese Paarung kommt seltener."
+            : "Bewertung zurückgenommen."
+      );
     } catch (err) {
+      merke(i, { laeuft: null });
       fail(err, "Die Rückmeldung ging nicht durch.");
     }
   }
 
-  async function markWorn(parts, punkte) {
+  async function markWorn(i, parts, punkte) {
+    const jetzt = outfitState[i] || {};
+    if (jetzt.laeuft || jetzt.getragen) return;
+    merke(i, { laeuft: "getragen" });
     try {
       await api.worn({ teile: parts.map((p) => p.id), anlass: occasion, temp, punkte });
       setItems(await api.items());
-      setNotice("Als getragen vermerkt.");
+      merke(i, { getragen: true, laeuft: null });
+      setNotice("Als getragen vermerkt. Diese Teile kommen ein paar Tage seltener dran.");
     } catch (err) {
+      merke(i, { laeuft: null });
       fail(err, "Das konnte nicht vermerkt werden.");
     }
   }
@@ -513,7 +591,7 @@ export default function App() {
         </div>
       )}
 
-      {(busy || error || notice || progress) && (
+      {(busy || error || progress) && (
         <div className="px-5 pt-4">
           {busy && (
             <p style={{ color: C.dim, letterSpacing: "0.18em" }} className="text-[10px] uppercase">
@@ -536,7 +614,6 @@ export default function App() {
             </div>
           )}
           {error && <p style={{ color: C.signal }} className="text-sm mt-1">{error}</p>}
-          {notice && !error && <p style={{ color: C.dim }} className="text-sm mt-1">{notice}</p>}
         </div>
       )}
 
@@ -593,12 +670,80 @@ export default function App() {
 
           <button
             onClick={suggest}
-            disabled={!!busy}
-            style={{ background: C.text, color: C.bg, letterSpacing: "0.2em" }}
-            className="mt-6 w-full py-4 text-[11px] uppercase"
+            disabled={!!busy || !!suggesting}
+            style={{
+              background: suggesting ? "transparent" : C.text,
+              color: suggesting ? C.dim : C.bg,
+              borderColor: C.line,
+              letterSpacing: "0.2em",
+              opacity: busy && !suggesting ? 0.5 : 1,
+            }}
+            className={`mt-6 w-full py-4 text-[11px] uppercase ${suggesting ? "border" : ""}`}
           >
-            Outfits zeigen
+            {suggesting ? suggesting.text : "Outfits zeigen"}
           </button>
+
+          {suggesting && (
+            <div className="mt-4" role="status" aria-live="polite">
+              {/* Der Balken zeigt echte Phasen, keine geschätzte Zeit.
+                  Während einer Phase pulsiert er, damit sichtbar bleibt,
+                  dass etwas läuft, auch wenn er kurz stehen bleibt. */}
+              <div style={{ background: C.surface }} className="h-px overflow-hidden">
+                <div
+                  className="rack-puls"
+                  style={{
+                    background: C.text,
+                    height: 1,
+                    width: `${Math.round(
+                      (suggesting.schritt / Math.max(1, suggesting.gesamt)) * 100
+                    )}%`,
+                    transition: "width 400ms ease-out",
+                  }}
+                />
+              </div>
+              <div className="mt-2 flex items-baseline justify-between gap-3">
+                <Label>
+                  Schritt {Math.min(suggesting.schritt + 1, suggesting.gesamt)} von{" "}
+                  {suggesting.gesamt}
+                </Label>
+                <Label style={{ color: C.faint }}>
+                  {suggesting.phase === "kuratieren"
+                    ? "das dauert am längsten"
+                    : suggesting.phase === "trends"
+                      ? "nur alle 30 Tage nötig"
+                      : ""}
+                </Label>
+              </div>
+              {outfits.length === 0 && (
+                <div className="mt-6 space-y-6">
+                  {[0, 1, 2].map((n) => (
+                    <div key={n} className="rack-puls" style={{ opacity: 1 - n * 0.28 }}>
+                      <div
+                        style={{ background: C.surface }}
+                        className="h-4 w-1/3"
+                      />
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        {[0, 1, 2, 3].map((m) => (
+                          <div
+                            key={m}
+                            style={{ background: C.surface }}
+                            className="aspect-square"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {suggesting && outfits.length > 0 && !curated && (
+            <p style={{ color: C.faint }} className="mt-4 text-xs leading-relaxed">
+              Das ist schon die Rangfolge der Engine. Titel, Begründung und Styling-Schritte
+              kommen gleich dazu.
+            </p>
+          )}
 
           {relaxed && outfits.length > 0 && (
             <p style={{ color: C.dim }} className="mt-4 text-xs leading-relaxed">
@@ -606,7 +751,7 @@ export default function App() {
               Durchlauf gelockert. Mehr Teile im Schrank lösen das.
             </p>
           )}
-          {!curated && outfits.length > 0 && (
+          {!curated && outfits.length > 0 && !suggesting && (
             <p style={{ color: C.faint }} className="mt-2 text-xs leading-relaxed">
               Das ist die reine Rangfolge der Engine, ohne Kuratierung.
             </p>
@@ -694,29 +839,62 @@ export default function App() {
                 )}
               </div>
 
-              <div className="mt-5 flex gap-2">
-                <button
-                  onClick={() => markWorn(o.teile, o.punkte)}
-                  style={{ background: C.text, color: C.bg, letterSpacing: "0.16em" }}
-                  className="flex-1 py-3 text-[10px] uppercase"
-                >
-                  Getragen
-                </button>
-                <button
-                  onClick={() => rate(o.teile, "gut")}
-                  style={{ borderColor: C.line, color: C.text, letterSpacing: "0.16em" }}
-                  className="px-4 py-3 text-[10px] uppercase border"
-                >
-                  Gut
-                </button>
-                <button
-                  onClick={() => rate(o.teile, "schlecht")}
-                  style={{ borderColor: C.line, color: C.signal, letterSpacing: "0.16em" }}
-                  className="px-4 py-3 text-[10px] uppercase border"
-                >
-                  Nein
-                </button>
-              </div>
+              {(() => {
+                /* Jeder Knopf quittiert sich selbst. Der Hinweis oben am
+                   Bildschirm ist bei Vorschlag zwei und drei außer Sicht,
+                   ohne sichtbaren Zustand hier wirkt der Druck folgenlos. */
+                const z = outfitState[i] || {};
+                return (
+                  <div className="mt-5 flex gap-2">
+                    <button
+                      onClick={() => markWorn(i, o.teile, o.punkte)}
+                      disabled={!!z.laeuft || !!z.getragen}
+                      style={{
+                        background: z.getragen ? "transparent" : C.text,
+                        color: z.getragen ? C.dim : C.bg,
+                        borderColor: C.line,
+                        letterSpacing: "0.16em",
+                      }}
+                      className={`flex-1 py-3 text-[10px] uppercase ${
+                        z.getragen ? "border" : ""
+                      } ${z.laeuft === "getragen" ? "rack-puls" : ""}`}
+                    >
+                      {z.getragen ? "Getragen ✓" : z.laeuft === "getragen"
+                        ? "Wird vermerkt" : "Getragen"}
+                    </button>
+                    <button
+                      onClick={() => rate(i, o.teile, "gut")}
+                      disabled={!!z.laeuft}
+                      style={{
+                        background: z.urteil === "gut" ? C.text : "transparent",
+                        color: z.urteil === "gut" ? C.bg : C.text,
+                        borderColor: z.urteil === "gut" ? C.text : C.line,
+                        letterSpacing: "0.16em",
+                      }}
+                      className={`px-4 py-3 text-[10px] uppercase border ${
+                        z.laeuft === "urteil" ? "rack-puls" : ""
+                      }`}
+                    >
+                      {z.urteil === "gut" ? "Gut ✓" : "Gut"}
+                    </button>
+                    <button
+                      onClick={() => rate(i, o.teile, "schlecht")}
+                      disabled={!!z.laeuft}
+                      style={{
+                        background: z.urteil === "schlecht" ? C.signal : "transparent",
+                        color: z.urteil === "schlecht" ? C.bg : C.signal,
+                        borderColor: z.urteil === "schlecht" ? C.signal : C.line,
+                        letterSpacing: "0.16em",
+                      }}
+                      className={`px-4 py-3 text-[10px] uppercase border ${
+                        z.laeuft === "urteil" ? "rack-puls" : ""
+                      }`}
+                    >
+                      {z.urteil === "schlecht" ? "Nein ✓" : "Nein"}
+                    </button>
+                  </div>
+                );
+              })()}
             </section>
           ))}
         </main>
@@ -836,6 +1014,26 @@ export default function App() {
             <p style={{ color: C.faint }} className="mt-8 text-xs leading-relaxed">{gaps.hinweis}</p>
           )}
         </main>
+      )}
+
+      {/* ─────────────────────── Kurzmeldung ────────────────────────── */}
+      {/* Bewusst am unteren Rand und fest im Bild: Quittungen entstehen
+          beim Tippen weit unten auf der Seite, oben würde sie niemand
+          sehen. Verschwindet nach ein paar Sekunden von selbst. */}
+      {notice && (
+        <div
+          className="fixed left-0 right-0 z-30 px-5"
+          style={{ bottom: view === "fehlt" ? 20 : 96 }}
+          role="status"
+          aria-live="polite"
+        >
+          <div
+            style={{ background: C.raised, borderColor: C.line, color: C.text }}
+            className="border rounded-sm px-4 py-3 text-sm shadow-lg"
+          >
+            {notice}
+          </div>
+        </div>
       )}
 
       {/* ───────────────────────── Erfassen-Leiste ──────────────────── */}

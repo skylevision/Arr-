@@ -37,6 +37,16 @@ select {
   }
 }
 
+/* Sanftes Pulsieren, solange etwas laeuft. Nur ein Lebenszeichen, keine
+   Zeitangabe: die Dauer eines Modellaufrufs ist nicht vorhersagbar. */
+@keyframes rack-puls {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.rack-puls {
+  animation: rack-puls 1.6s ease-in-out infinite;
+}
+
 /* Auf dem iPhone im Vollbildmodus nicht unter die Systemleisten laufen. */
 body {
   background: #121212;

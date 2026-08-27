@@ -13,7 +13,7 @@ import logging
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import APIRouter, Body, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -208,7 +208,7 @@ async def ingest(request: Request, fotos: list[UploadFile] = File(...)) -> dict[
         raise HTTPException(400, "Keines der Fotos konnte gelesen werden.")
 
     job_id = uuid.uuid4().hex[:12]
-    job: dict[str, Any] = {"created": time.time(), "gesamt": len(payloads),
+    job: dict[str, Any] = {"created": time.time(), "art": "ingest", "gesamt": len(payloads),
                            "fertig": 0, "eintraege": [], "status": "laeuft",
                            "fehler": None}
     _jobs[job_id] = job
@@ -401,20 +401,33 @@ def get_trends() -> dict[str, Any]:
             "abgerufen": (db.get_trends() or cached or {}).get("fetched_at")}
 
 
-@router.post("/outfits")
-def suggest(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+def _outfit_result(payload: dict[str, Any],
+                   melden: Callable[..., None] = lambda *a, **k: None) -> dict[str, Any]:
+    """Die Vorschlagslogik, in Phasen zerlegt.
+
+    `melden` bekommt jede Phase gemeldet, damit die Oberfläche einen
+    ehrlichen Fortschritt zeigen kann. Die Phasen sind echt und nicht
+    geschätzt: rechnen, Trends nachschlagen, kuratieren. Die Rangfolge der
+    Engine wird mitgeschickt, sobald sie steht — der Nutzer sieht damit
+    sofort Ergebnisse, statt auf den Modellaufruf zu warten.
+    """
     occasion = payload.get("anlass") or "Alltag"
     temp = float(payload.get("temp", 16))
     anchor = payload.get("anker")
+
+    schritte = 3 if settings.ai_enabled else 1
+    melden("rechnen", "Kombinationen rechnen", schritt=0, gesamt=schritte)
 
     items = db.list_items()
     ctx = build_ctx(occasion, temp, anchor)
     result = E.top_picks(items, ctx)
     picks = result["picks"]
     if not picks:
-        return {"outfits": [], "gelockert": False,
+        leer = {"outfits": [], "gelockert": False,
                 "meldung": "Keine zulässige Kombination gefunden. Es fehlen "
                            "Oberteile, Unterteile oder Schuhe."}
+        melden("fertig", "Nichts gefunden", schritt=schritte, gesamt=schritte)
+        return leer
 
     def engine_only(grund: str | None = None) -> dict[str, Any]:
         return {
@@ -428,9 +441,21 @@ def suggest(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         }
 
     if not settings.ai_enabled:
-        return engine_only("Ohne API-Schlüssel zeigt die App die Rangfolge der Engine.")
+        fertig = engine_only("Ohne API-Schlüssel zeigt die App die Rangfolge der Engine.")
+        melden("fertig", "Fertig", schritt=schritte, gesamt=schritte)
+        return fertig
 
+    # Die reine Rechnung ist da. Sie geht sofort raus, damit die Oberfläche
+    # etwas zeigen kann, während das Modell noch arbeitet.
+    melden("gerechnet",
+           f"{result['total']} zulässige Kombinationen, "
+           f"{len(picks)} zur Auswahl",
+           schritt=1, gesamt=schritte, roh=engine_only())
+
+    melden("trends", "Aktuelle Einordnung nachschlagen", schritt=1, gesamt=schritte)
     trends = _cached_trends()
+
+    melden("kuratieren", "Kuratieren und Styling schreiben", schritt=2, gesamt=schritte)
     try:
         res = ai.ask(
             [{"type": "text",
@@ -438,8 +463,10 @@ def suggest(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
                                         _payload_for_model(picks))}],
             model=settings.model_curate, max_tokens=2000, effort="medium")
     except ai.AIUnavailable as exc:
-        return engine_only(f"Die Kuratierung war nicht erreichbar ({exc}). "
-                           "Das ist die Rangfolge der Engine.")
+        abbruch = engine_only(f"Die Kuratierung war nicht erreichbar ({exc}). "
+                              "Das ist die Rangfolge der Engine.")
+        melden("fertig", "Ohne Kuratierung", schritt=schritte, gesamt=schritte)
+        return abbruch
 
     out = []
     for a in res.get("auswahl") or []:
@@ -453,9 +480,98 @@ def suggest(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
                     "trendhinweis": a.get("trendhinweis") or "",
                     "punkte": round(p["score"]["total"] * 100),
                     "teile": p["parts"], "detail": p["score"]["sub"]})
+    melden("fertig", "Fertig", schritt=schritte, gesamt=schritte)
     if not out:
         return engine_only()
     return {"outfits": out, "gelockert": result["relaxed"], "kuratiert": True}
+
+
+@router.post("/outfits")
+def suggest(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Vorschläge in einem Rutsch. Für Skripte und als Rückfallweg."""
+    return _outfit_result(payload)
+
+
+@router.post("/outfits/start")
+async def suggest_start(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Startet die Vorschläge als Vorgang und liefert eine Nummer.
+
+    Der Fortschritt kommt über /api/outfits/{job}/events oder per Abfrage
+    unter /api/outfits/{job}.
+    """
+    _prune_jobs()
+    job_id = uuid.uuid4().hex[:12]
+    job: dict[str, Any] = {
+        "created": time.time(), "art": "outfits", "status": "laeuft",
+        "phase": "start", "text": "Wird vorbereitet", "schritt": 0, "gesamt": 3,
+        "roh": None, "ergebnis": None, "ereignisse": [],
+    }
+    _jobs[job_id] = job
+
+    def melden(phase: str, text: str, *, schritt: int = 0, gesamt: int = 3,
+               roh: dict | None = None) -> None:
+        job.update(phase=phase, text=text, schritt=schritt, gesamt=gesamt)
+        if roh is not None:
+            job["roh"] = roh
+        # Jede Meldung wird angehaengt, nicht nur der Zustand fortgeschrieben.
+        # Ein abtastender Leser wuerde sonst kurze Phasen verschlucken.
+        job["ereignisse"].append({
+            "phase": phase, "text": text, "schritt": schritt, "gesamt": gesamt,
+            "roh": job["roh"],
+        })
+
+    async def run() -> None:
+        try:
+            job["ergebnis"] = await asyncio.to_thread(_outfit_result, payload, melden)
+        except Exception as exc:                   # noqa: BLE001
+            log.warning("Vorschläge fehlgeschlagen: %s: %s", type(exc).__name__, exc)
+            job["ergebnis"] = {"outfits": [], "gelockert": False,
+                               "meldung": "Die Vorschläge konnten nicht berechnet werden."}
+        job["status"] = "fertig"
+
+    asyncio.create_task(run())
+    return {"job": job_id}
+
+
+def _outfit_view(job: dict[str, Any]) -> dict[str, Any]:
+    return {"status": job["status"], "phase": job["phase"], "text": job["text"],
+            "schritt": job["schritt"], "gesamt": job["gesamt"],
+            "roh": job["roh"], "ergebnis": job["ergebnis"]}
+
+
+@router.get("/outfits/{job_id}")
+def suggest_status(job_id: str) -> dict[str, Any]:
+    job = _jobs.get(job_id)
+    if not job or job.get("art") != "outfits":
+        raise HTTPException(404, "Unbekannter Vorgang.")
+    return _outfit_view(job)
+
+
+@router.get("/outfits/{job_id}/events")
+async def suggest_events(job_id: str) -> StreamingResponse:
+    job = _jobs.get(job_id)
+    if not job or job.get("art") != "outfits":
+        raise HTTPException(404, "Unbekannter Vorgang.")
+
+    async def stream():
+        # Die Warteschlange wird geleert, nicht abgetastet. Ein abtastender
+        # Leser verschluckt sonst kurze Phasen, wenn zwei Meldungen dicht
+        # aufeinander folgen.
+        gesendet = 0
+        while True:
+            while gesendet < len(job["ereignisse"]):
+                yield ("data: " + json.dumps(job["ereignisse"][gesendet],
+                                             ensure_ascii=False) + "\n\n")
+                gesendet += 1
+            if job["status"] == "fertig":
+                yield ("event: ende\ndata: "
+                       + json.dumps(job["ergebnis"], ensure_ascii=False) + "\n\n")
+                return
+            await asyncio.sleep(0.2)
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})
 
 
 # ── Rueckmeldung und Tragen ─────────────────────────────────────────────

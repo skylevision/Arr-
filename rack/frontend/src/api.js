@@ -85,6 +85,8 @@ export const api = {
   ingestStatus: (job) => call(`/ingest/${job}`),
 
   outfits: (payload) => call("/outfits", { method: "POST", body: payload }),
+  startOutfits: (payload) => call("/outfits/start", { method: "POST", body: payload }),
+  outfitStatus: (job) => call(`/outfits/${job}`),
   feedback: (payload) => call("/feedback", { method: "POST", body: payload }),
   worn: (payload) => call("/worn", { method: "POST", body: payload }),
   gaps: (payload) => call("/gaps", { method: "POST", body: payload }),
@@ -99,11 +101,14 @@ export function imageUrl(id) {
   return `/api/images/${id}${t ? `?token=${encodeURIComponent(t)}` : ""}`;
 }
 
-/* Fortschritt der Erfassung. Bevorzugt Server-Sent Events, faellt bei
-   Problemen auf Abfrage zurueck, damit die Leiste nie haengen bleibt. */
-export function followIngest(job, { onProgress, onDone, onError }) {
+/* Fortschritt eines laufenden Vorgangs verfolgen.
+
+   Bevorzugt Server-Sent Events, faellt bei Problemen auf Abfrage zurueck,
+   damit die Anzeige nie haengen bleibt. `fertig` entscheidet, wann der
+   Vorgang durch ist, `ergebnis` liefert das, was der Aufrufer haben will. */
+function followJob(pfad, job, { status, fertig, ergebnis, onProgress, onDone, onError }) {
   const t = token();
-  const url = `/api/ingest/${job}/events${t ? `?token=${encodeURIComponent(t)}` : ""}`;
+  const url = `/api/${pfad}/${job}/events${t ? `?token=${encodeURIComponent(t)}` : ""}`;
   let closed = false;
 
   const poll = () => {
@@ -111,9 +116,9 @@ export function followIngest(job, { onProgress, onDone, onError }) {
     const tick = async () => {
       if (closed) return;
       try {
-        const state = await api.ingestStatus(job);
+        const state = await status(job);
         onProgress?.(state);
-        if (state.status === "fertig") return onDone?.(state);
+        if (fertig(state)) return onDone?.(ergebnis(state));
         setTimeout(tick, 700);
       } catch (err) {
         onError?.(err);
@@ -141,6 +146,7 @@ export function followIngest(job, { onProgress, onDone, onError }) {
   };
   source.addEventListener("ende", (e) => {
     source.close();
+    if (closed) return;
     try {
       onDone?.(JSON.parse(e.data));
     } catch {
@@ -156,4 +162,22 @@ export function followIngest(job, { onProgress, onDone, onError }) {
     closed = true;
     source?.close();
   };
+}
+
+export function followIngest(job, handlers) {
+  return followJob("ingest", job, {
+    status: api.ingestStatus,
+    fertig: (s) => s.status === "fertig",
+    ergebnis: (s) => s,
+    ...handlers,
+  });
+}
+
+export function followOutfits(job, handlers) {
+  return followJob("outfits", job, {
+    status: api.outfitStatus,
+    fertig: (s) => s.status === "fertig",
+    ergebnis: (s) => s.ergebnis,
+    ...handlers,
+  });
 }
