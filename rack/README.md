@@ -154,7 +154,7 @@ rack/
   backend/
     app/engine.py         die Regel-Engine, 1:1 aus rack.jsx portiert
     app/gaps.py           Lückenanalyse mit virtuellem Test
-    app/prompts.py        die Prompts, wortgleich übernommen
+    app/prompts.py        die Prompts aus rack.jsx (Kuration bewusst geschärft)
     app/api.py            die HTTP-Schnittstelle
     app/db.py             SQLite mit WAL, einzige Stelle mit snake_case
     app/images.py         skalieren, freistellen, ablegen

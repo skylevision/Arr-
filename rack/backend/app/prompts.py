@@ -1,9 +1,17 @@
-"""Die Prompts aus rack.jsx, unveraendert uebernommen.
+"""Die Prompts aus rack.jsx.
 
-Der Wortlaut ist auf die JSON-Schemata abgestimmt und darf laut Briefing
-Abschnitt 5 nicht angepasst werden. Uebernommen wurden nur die Template-
-Einsetzungen: aus ${profile?.gender || "männlich"} wird die gleichwertige
-Python-Formatierung. Die Fallback-Werte sind dabei dieselben.
+READ_PROMPT, BODY_PROMPT, der Trend- und der Lueckenprompt sind wortgleich
+uebernommen; angepasst wurden nur die Template-Einsetzungen, aus
+${profile?.gender || "männlich"} wird die gleichwertige Python-Formatierung
+mit denselben Ersatzwerten.
+
+Eine Ausnahme, auf ausdrueckliche Ansage des Auftraggebers und damit
+abweichend von Briefing Abschnitt 5: der Kurations-Prompt. Die
+Aufzaehlung der Styling-Aspekte las sich als Checkliste und erzeugte
+Leerschritte wie "kurze Aermel unbehandelt lassen" oder "keine Uhr, da
+nicht sichtbar". Jetzt gilt: jeder Schritt muss eine Entscheidung
+beschreiben, und ein Accessoire, das man gar nicht sieht, wandert nach
+"weglassen" statt in einen Schritt.
 """
 
 from __future__ import annotations
@@ -98,7 +106,11 @@ Anlass: {occasion}. Temperatur: {temp} Grad.
 
 Regeln für deine Antwort:
 - Beziehe dich ausschließlich auf Teile, die im jeweiligen Outfit enthalten sind. Erfinde nichts dazu.
-- Die Styling-Schritte müssen konkret und ausführbar sein: Layering-Reihenfolge, Hemd offen oder geschlossen und wie viele Knöpfe, Ärmel gekrempelt und wie, Oberteil eingesteckt, halb eingesteckt oder offen, Hosensaum auf dem Schuh oder gekrempelt, Sitz der Mütze, ob eine Uhr sichtbar getragen wird.
+- Jeder Styling-Schritt beschreibt einen Handgriff, den man auch weglassen könnte. Nur die aktive Entscheidung zählt: krempeln, einstecken, öffnen, schließen, stauchen, umschlagen, aufsetzen.
+- Ein Schritt, der beschreibt, etwas NICHT zu tun oder etwas so zu lassen, wie es von allein fällt, ist kein Schritt. Streich ihn ersatzlos, auch wenn er schön begründet ist. Nicht in die Liste gehören etwa "Ärmel nicht krempeln", "kurze Ärmel unbehandelt lassen", "Ärmel bis zum Handgelenk auslaufen lassen", "Saum normal auf dem Schuh aufliegen lassen", "Schnürung wie üblich", "ganz normal tragen".
+- Konkret heißt: Layering-Reihenfolge, Hemd offen oder geschlossen und wie viele Knöpfe, wie und wie weit die Ärmel gekrempelt werden, Oberteil eingesteckt, halb eingesteckt oder offen, Hosensaum auf dem Schuh oder gekrempelt, Sitz der Mütze. Das sind Beispiele für die gewünschte Genauigkeit, keine Liste zum Abarbeiten.
+- Zwei bis fünf Schritte. Zwei, die etwas verändern, sind besser als fünf mit Füllmaterial. Wenn ein Outfit schlicht ist, ist es schlicht.
+- Schreib keinen Schritt über ein Teil, das man in diesem Outfit gar nicht sieht. Eine Uhr unter einem langen Ärmel ist nur dann ein Thema, wenn der Ärmel gekrempelt wird. Trägt ein Accessoire so nichts bei, nenn es unter "weglassen" statt einen Schritt darüber zu schreiben.
 - Der Trendhinweis ist optional und darf die Auswahl nicht überstimmen. Lass ihn weg, wenn er nichts beiträgt.
 - Die drei Outfits sollen sich klar unterscheiden.
 
@@ -106,7 +118,7 @@ Kandidaten:
 {_dumps(payload)}
 
 Antworte nur mit JSON:
-{{"auswahl":[{{"nr":0,"titel":"höchstens drei Wörter","begruendung":"zwei Sätze","styling":["drei bis fünf konkrete Schritte"],"trendhinweis":"ein Satz oder leer"}}]}}"""
+{{"auswahl":[{{"nr":0,"titel":"höchstens drei Wörter","begruendung":"zwei Sätze","styling":["zwei bis fünf Handgriffe, jeder eine aktive Entscheidung"],"weglassen":["Namen von Teilen aus diesem Outfit, die man sich sparen kann, weil man sie nicht sieht. Meist leer."],"trendhinweis":"ein Satz oder leer"}}]}}"""
 
 
 def gaps_prompt(profile: dict | None, data: dict) -> str:

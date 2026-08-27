@@ -22,6 +22,7 @@ from . import ai, db, images, weather
 from . import engine as E
 from . import prompts as P
 from .config import settings
+from .curation import entbehrliche_accessoires
 from .gaps import analyse_gaps
 
 log = logging.getLogger("rack.api")
@@ -433,7 +434,7 @@ def _outfit_result(payload: dict[str, Any],
         return {
             "outfits": [{"titel": f"Kombination {i + 1}",
                          "begruendung": grund or "",
-                         "styling": [], "trendhinweis": "",
+                         "styling": [], "weglassen": [], "trendhinweis": "",
                          "punkte": round(p["score"]["total"] * 100),
                          "teile": p["parts"], "detail": p["score"]["sub"]}
                         for i, p in enumerate(picks[:3])],
@@ -477,6 +478,7 @@ def _outfit_result(payload: dict[str, Any],
         out.append({"titel": a.get("titel") or "Kombination",
                     "begruendung": a.get("begruendung") or "",
                     "styling": a.get("styling") or [],
+                    "weglassen": entbehrliche_accessoires(a, p["parts"]),
                     "trendhinweis": a.get("trendhinweis") or "",
                     "punkte": round(p["score"]["total"] * 100),
                     "teile": p["parts"], "detail": p["score"]["sub"]})

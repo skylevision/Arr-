@@ -811,6 +811,15 @@ export default function App() {
                 </div>
               )}
 
+              {Array.isArray(o.weglassen) && o.weglassen.length > 0 && (
+                <p style={{ color: C.faint }} className="text-xs mt-4 leading-relaxed">
+                  <Label>Kannst du dir sparen</Label>
+                  <span className="block mt-1">
+                    {o.weglassen.join(", ")} — sieht man in dieser Kombination nicht.
+                  </span>
+                </p>
+              )}
+
               {o.trendhinweis && (
                 <p style={{ color: C.dim }} className="text-xs mt-4 leading-relaxed">
                   <Label>Aktuell</Label>
