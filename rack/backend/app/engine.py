@@ -31,6 +31,11 @@ RISES = ["high", "mid", "low"]
 THICKNESS = ["dünn", "mittel", "dick"]
 PATTERNS = ["uni", "gestreift", "kariert", "gemustert", "meliert", "logo"]
 SHOE_WEIGHT = ["filigran", "normal", "chunky"]
+# Pflegehinweise. Bewusst grob: die genauen Symbole stehen im Etikett,
+# hier geht es nur um die Frage, was zusammen in eine Maschine darf.
+CARE_LABELS = ["30 Grad", "40 Grad", "60 Grad", "Handwäsche",
+               "Reinigung", "nicht in den Trockner"]
+
 BUILDS = ["schlank", "normal", "athletisch", "kräftig"]
 TORSOS = ["langer Oberkörper", "ausgeglichen", "lange Beine"]
 
@@ -359,9 +364,10 @@ def laundry_remaining(item: Item, now_ms: float | None = None) -> float:
 def is_available(item: Item, now_ms: float | None = None) -> bool:
     """Steht das Teil fuer Vorschlaege zur Verfuegung?
 
-    Zwei Gruende dagegen: von Hand pausiert, oder noch in der Waesche.
+    Drei Gruende dagegen: von Hand pausiert, eingemottet (Saison), oder
+    noch in der Waesche.
     """
-    if item.get("paused"):
+    if item.get("paused") or item.get("archived"):
         return False
     return laundry_remaining(item, now_ms) <= 0
 
@@ -815,6 +821,77 @@ def build(items: list[Item], ctx: dict, level: int = 0,
         finish([d])
     out.sort(key=lambda o: o["score"]["raw"], reverse=True)
     return out
+
+
+# ── Packliste ───────────────────────────────────────────────────────────
+
+def pack_list(items: list[Item], ctx: dict, tage: int = 5,
+              now_ms: float | None = None) -> dict:
+    """Kleinste Teilemenge, aus der sich fuer die Reise genug Outfits bauen laesst.
+
+    Gierig statt vollstaendig: alle Kombinationen ueber alle Teilmengen
+    durchzurechnen waere exponentiell. Stattdessen wird Runde fuer Runde
+    das beste noch nicht gepackte Outfit genommen; die Teile, die es
+    braucht, wandern in den Koffer, und weil sie dort bleiben, kosten sie
+    in den folgenden Runden nichts mehr. Genau so packt man auch von Hand
+    — ein Oberteil mehr, das zu allem passt, statt eines zweiten
+    vollstaendigen Outfits.
+
+    Rueckgabe enthaelt die Teile, die Outfits und was wofuer gebraucht wird.
+    """
+    tage = max(1, min(30, int(tage)))
+    verfuegbar = [i for i in items if is_available(i, now_ms) and not i.get("archived")]
+
+    koffer: dict[str, Item] = {}
+    outfits: list[dict] = []
+    benutzt: set[str] = set()
+
+    for _ in range(tage):
+        kandidaten = build(verfuegbar, ctx, 0, now_ms)
+        if not kandidaten:
+            # Ohne harte Treffer die gelockerte Stufe versuchen, sonst
+            # bleibt die Liste bei einem duennen Schrank einfach leer.
+            kandidaten = build(verfuegbar, ctx, 2, now_ms)
+        if not kandidaten:
+            break
+
+        # Bestes Outfit, gewichtet nach dem, was es zusaetzlich kostet:
+        # ein Outfit aus bereits gepackten Teilen ist bares Gewicht wert.
+        bestes, bester_wert = None, -1.0
+        for k in kandidaten:
+            ids = [p["id"] for p in k["parts"]]
+            if tuple(sorted(ids)) in benutzt:
+                continue
+            neu = sum(1 for i in ids if i not in koffer)
+            # +1 im Nenner, damit ein Outfit ohne neue Teile nicht durch
+            # Null teilt und trotzdem klar vorne liegt.
+            wert = k["score"]["raw"] / (1 + neu)
+            if wert > bester_wert:
+                bestes, bester_wert = k, wert
+        if bestes is None:
+            break
+
+        ids = [p["id"] for p in bestes["parts"]]
+        benutzt.add(tuple(sorted(ids)))
+        for p in bestes["parts"]:
+            koffer.setdefault(p["id"], p)
+        outfits.append({"itemIds": ids, "punkte": bestes["score"]["total"]})
+
+    # Wofuer wird jedes Teil gebraucht? Macht die Liste beim Packen lesbar.
+    einsatz: dict[str, int] = {}
+    for o in outfits:
+        for i in o["itemIds"]:
+            einsatz[i] = einsatz.get(i, 0) + 1
+
+    return {
+        "tage": tage,
+        "teile": [{"id": i, "name": koffer[i].get("name"),
+                   "kategorie": koffer[i].get("category"),
+                   "fuerOutfits": einsatz.get(i, 0)}
+                  for i in sorted(koffer, key=lambda x: -einsatz.get(x, 0))],
+        "outfits": outfits,
+        "genug": len(outfits) >= tage,
+    }
 
 
 def top_picks(items: list[Item], ctx: dict, now_ms: float | None = None) -> dict:

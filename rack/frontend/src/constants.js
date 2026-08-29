@@ -34,6 +34,8 @@ export const MATERIALS = [
 export const TEXTURES = ["glatt", "strukturiert", "glänzend", "flauschig", "robust"];
 export const PATTERN_SCALE = ["klein", "mittel", "groß"];
 export const SLEEVES = ["ärmellos", "kurz", "dreiviertel", "lang"];
+export const CARE_LABELS = ["30 Grad", "40 Grad", "60 Grad", "Handwäsche",
+  "Reinigung", "nicht in den Trockner"];
 export const BUILDS = ["schlank", "normal", "athletisch", "kräftig"];
 export const TORSOS = ["langer Oberkörper", "ausgeglichen", "lange Beine"];
 

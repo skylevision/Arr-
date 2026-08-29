@@ -289,6 +289,44 @@ Dieselben Listen prüfen beim Speichern die Eingaben (`_pruefe_vokabular`). Unbe
 Werte werden **verworfen, nicht abgelehnt** — ein einzelnes schiefes Feld soll nicht das
 ganze Teil unspeicherbar machen. Es bleibt dann leer und fällt in der Oberfläche auf.
 
+#### Planen, Merken, Packen
+
+| | |
+|---|---|
+| **Gemerkte Outfits** | Ein Vorschlag, der funktioniert hat, unter einem Namen (`saved_outfits`). Die Teile stehen als JSON-Liste drin, nicht als Fremdschlüssel — ein gelöschtes Teil soll das Outfit nicht mitreißen, es fehlt dann eben eines und das sieht man. |
+| **Kalender** | Ein Tag, ein Outfit (`planned_outfits`, `plan_date` als Primärschlüssel). Die Ansicht zeigt sieben Tage. |
+| **Wäsche kennt die Planung** | Was in den nächsten Tagen eingeplant ist, wandert nach dem Tragen **nicht** in die Wäsche. Sonst nimmt die Automatik einem das Hemd weg, das man für Freitag vorgemerkt hat. |
+| **Packliste** | `POST /api/packliste` — die kleinste Teilemenge, aus der sich für *n* Tage genug Outfits bauen lassen. |
+
+Die Packliste rechnet **gierig, nicht vollständig**: alle Kombinationen über alle Teilmengen
+durchzugehen wäre exponentiell. Stattdessen wird Runde für Runde das beste noch nicht
+gepackte Outfit genommen, gewichtet nach `score / (1 + neue Teile)`. Ein Outfit, das nur
+aus bereits gepackten Teilen besteht, gewinnt damit gegen ein besseres, das zwei neue
+braucht — genau so packt man auch von Hand. Reicht der Schrank nicht für die gewünschten
+Tage, sagt die Antwort das (`genug: false`), statt eine zu kurze Liste als vollständig
+auszugeben.
+
+#### Einmotten statt löschen
+
+`archived` nimmt ein Teil aus allen Vorschlägen, lässt es aber im Bestand — für
+Winterkleidung im Juli. Der Schrank zeigt eingemottete Teile nur, wenn man den Filter
+umschaltet. Unterschied zu `paused`: das ist der kurze Fall („liegt gerade in der
+Maschine"), `archived` der saisonale.
+
+#### Aussortieren
+
+`GET /api/aussortieren` bewertet nach Alter im Schrank, Tragehäufigkeit, wie oft ein Teil
+in abgelehnten Kombinationen steckt, und — falls hinterlegt — dem Preis pro Tragen. Es
+liefert **einen Vorschlag mit Begründung, keine Automatik**: was aus dem Schrank fliegt,
+entscheidet niemand außer dir. Teile unter 60 Tagen im Bestand bleiben außen vor, sonst
+verurteilt die Liste Neuzugänge.
+
+#### Foto vom Outfit
+
+`POST /api/worn/{id}/foto` hängt ein Bild an einen Protokolleintrag. Anders als das
+Ganzkörperfoto wird dieses **bewusst gespeichert** — das ist der Zweck. Es geht nie an ein
+Modell, sondern nur ins Volume.
+
 #### JavaScript-Semantik
 
 An drei Stellen musste die JavaScript-Semantik ausdrücklich nachgebaut werden, weil

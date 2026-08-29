@@ -151,6 +151,7 @@ VOKABULAR: dict[str, list[str]] = {
     "oberflaechen": ["glatt", "strukturiert", "glänzend", "flauschig", "robust"],
     "aermel": ["ärmellos", "kurz", "dreiviertel", "lang"],
     "schuhgewichte": E.SHOE_WEIGHT,
+    "pflege": E.CARE_LABELS,
     "staturen": E.BUILDS,
     "koerperbau": E.TORSOS,
 }
@@ -169,6 +170,7 @@ FELD_VOKABULAR: dict[str, str] = {
     "texture": "oberflaechen",
     "sleeve": "aermel",
     "shoeWeight": "schuhgewichte",
+    "care": "pflege",
 }
 
 
@@ -812,6 +814,169 @@ def stats() -> dict[str, Any]:
              "restTage": round(E.laundry_remaining(i), 1)}
             for i in items if E.laundry_remaining(i) > 0],
     }
+
+
+@router.post("/worn/{log_id}/foto")
+async def worn_foto(log_id: str, foto: UploadFile = File(...)) -> dict[str, Any]:
+    """Foto zum Trageprotokoll.
+
+    Anders als das Ganzkoerperfoto wird dieses bewusst gespeichert — es
+    ist der Zweck der Sache. Es geht nie an ein Modell, sondern nur ins
+    Volume, und wird beim Loeschen des Eintrags mit entfernt.
+    """
+    if not any(e["id"] == log_id for e in db.list_outfit_log(limit=1000)):
+        raise HTTPException(404, "Protokolleintrag nicht gefunden.")
+    roh = await foto.read()
+    if not roh:
+        raise HTTPException(400, "Das Foto war leer.")
+    fertig = images.prepare(roh, cutout=False)
+    pfad = images.store(f"ootd_{log_id}", fertig.ablage, fertig.media_type)
+    db.set_outfit_photo(log_id, pfad)
+    return {"id": log_id, "photoPath": pfad}
+
+
+@router.get("/worn/{log_id}/foto")
+def worn_foto_lesen(log_id: str) -> FileResponse:
+    eintrag = next((e for e in db.list_outfit_log(limit=1000) if e["id"] == log_id), None)
+    if not eintrag or not eintrag.get("photo_path"):
+        raise HTTPException(404, "Zu diesem Eintrag gibt es kein Foto.")
+    pfad = images.path_for(eintrag["photo_path"])
+    if not pfad:
+        raise HTTPException(404, "Die Bilddatei fehlt.")
+    return FileResponse(pfad, headers={"Cache-Control": "public, max-age=86400"})
+
+
+# ── Gespeicherte und geplante Outfits ───────────────────────────────────
+#
+# Bewusst NICHT unter /outfits/...: dort liegt schon /outfits/{job_id} für
+# die laufende Kuration, und FastAPI prüft die Routen in der Reihenfolge
+# ihrer Definition. "gespeichert" wäre dort als Job-Nummer gelandet.
+
+@router.get("/gespeicherte-outfits")
+def saved_outfits() -> list[dict[str, Any]]:
+    return db.list_saved_outfits()
+
+
+@router.post("/gespeicherte-outfits")
+def save_outfit(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    ids = payload.get("teile") or []
+    name = (payload.get("name") or "").strip()
+    if not ids:
+        raise HTTPException(400, "Keine Teile übergeben.")
+    if not name:
+        raise HTTPException(400, "Das Outfit braucht einen Namen.")
+    return db.save_outfit(name, ids, payload.get("anlass"), payload.get("notiz"))
+
+
+@router.delete("/gespeicherte-outfits/{outfit_id}")
+def remove_saved_outfit(outfit_id: str) -> dict[str, Any]:
+    if not db.delete_saved_outfit(outfit_id):
+        raise HTTPException(404, "Outfit nicht gefunden.")
+    return {"geloescht": outfit_id}
+
+
+@router.get("/plan")
+def plans(von: str | None = Query(None), bis: str | None = Query(None)) -> list[dict[str, Any]]:
+    return db.list_plans(von, bis)
+
+
+@router.put("/plan/{datum}")
+def set_plan(datum: str, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    # Datum als YYYY-MM-DD; alles andere waere spaeter nicht sortierbar.
+    try:
+        datetime.strptime(datum, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Datum bitte als JJJJ-MM-TT.") from None
+    ids = payload.get("teile") or []
+    if not ids:
+        raise HTTPException(400, "Keine Teile übergeben.")
+    return db.set_plan(datum, ids, payload.get("anlass"), payload.get("notiz"))
+
+
+@router.delete("/plan/{datum}")
+def remove_plan(datum: str) -> dict[str, Any]:
+    if not db.delete_plan(datum):
+        raise HTTPException(404, "Für diesen Tag ist nichts geplant.")
+    return {"geloescht": datum}
+
+
+# ── Packliste ───────────────────────────────────────────────────────────
+
+@router.post("/packliste")
+def packliste(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    """Was muss mit, um <tage> Tage bei <temp> Grad angezogen zu sein?"""
+    tage = int(payload.get("tage") or 5)
+    ctx = build_ctx(payload.get("anlass") or "Alltag",
+                    float(payload.get("temp") if payload.get("temp") is not None else 16))
+    res = E.pack_list(db.list_items(), ctx, tage)
+
+    # Teile anreichern, damit die Oberflaeche Bilder zeigen kann, ohne
+    # jedes Teil einzeln nachzuladen.
+    nach_id = {i["id"]: i for i in db.list_items()}
+    for t in res["teile"]:
+        voll = nach_id.get(t["id"], {})
+        t["imagePath"] = voll.get("imagePath")
+        t["material"] = voll.get("material")
+    return res
+
+
+# ── Aussortieren ────────────────────────────────────────────────────────
+
+@router.get("/aussortieren")
+def aussortieren(mindestalter: int = Query(60, ge=0, le=3650)) -> dict[str, Any]:
+    """Was trägst du nicht?
+
+    Bewusst nur ein Vorschlag mit Begruendung, keine Automatik: was aus
+    dem Schrank fliegt, entscheidet niemand ausser dir. Gewertet wird
+    nach Alter im Schrank, Tragehaeufigkeit und — falls hinterlegt —
+    dem Preis pro Tragen.
+    """
+    items = [i for i in db.list_items() if not i.get("archived")]
+    fb = db.get_feedback()
+    abgelehnt: dict[str, int] = {}
+    for paar in fb.get("disliked", []):
+        for teil in paar.split("|"):
+            abgelehnt[teil] = abgelehnt.get(teil, 0) + 1
+
+    vorschlaege = []
+    for i in items:
+        alter = _tage_her(i.get("createdAt")) or 0
+        if alter < mindestalter:
+            continue
+        getragen = i.get("wearCount") or 0
+        seit = _tage_her(i.get("lastWorn"))
+        gruende = []
+        gewicht = 0.0
+
+        if getragen == 0:
+            gruende.append(f"seit {alter} Tagen im Schrank und nie getragen")
+            gewicht += 3
+        elif seit is not None and seit >= 180:
+            gruende.append(f"zuletzt vor {seit} Tagen getragen")
+            gewicht += 2
+        elif getragen <= 2 and alter >= 180:
+            gruende.append(f"in {alter} Tagen nur {getragen}× getragen")
+            gewicht += 1.5
+
+        if abgelehnt.get(i["id"], 0) >= 2:
+            gruende.append("passt in Kombinationen selten")
+            gewicht += 1
+
+        preis = i.get("price")
+        if preis is not None and getragen > 0 and preis / getragen >= 50:
+            gruende.append(f"{preis / getragen:.0f} € pro Tragen")
+            gewicht += 1
+
+        if gruende:
+            vorschlaege.append({
+                "id": i["id"], "name": i.get("name"), "kategorie": i.get("category"),
+                "getragen": getragen, "seitErfassung": alter, "tageHer": seit,
+                "preis": preis, "gruende": gruende, "gewicht": round(gewicht, 1),
+            })
+
+    vorschlaege.sort(key=lambda x: -x["gewicht"])
+    return {"geprueft": len(items), "mindestalter": mindestalter,
+            "vorschlaege": vorschlaege[:20]}
 
 
 # ── Lueckenanalyse ──────────────────────────────────────────────────────

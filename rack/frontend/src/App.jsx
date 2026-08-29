@@ -5,6 +5,7 @@ import {
   OCCASIONS, PATTERN_SCALE, PATTERNS, PHOTO_GUIDE, RISES, SANS, SHOE_WEIGHT,
   SILHOUETTES, SLEEVES, TEXTURES, THICKNESS, TOP_LEN, TORSOS,
 } from "./constants.js";
+import { CARE_LABELS } from "./constants.js";
 
 /* ═══════════════════════════════════════════════════════════════════
    RACK
@@ -78,6 +79,15 @@ export default function App() {
   // womöglich veraltet, deshalb ist der Server die Wahrheit.
   const [vocab, setVocab] = useState(null);
   const [stats, setStats] = useState(null);
+  const [suche, setSuche] = useState("");
+  const [filterKat, setFilterKat] = useState("");
+  const [zeigeArchiv, setZeigeArchiv] = useState(false);
+  const [plaene, setPlaene] = useState([]);
+  const [gemerkte, setGemerkte] = useState([]);
+  const [packListe, setPackListe] = useState(null);
+  const [packTage, setPackTage] = useState(5);
+  const [packTemp, setPackTemp] = useState(16);
+  const [ausmisten, setAusmisten] = useState(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -125,11 +135,22 @@ export default function App() {
     setNeedToken(false);
   }, []);
 
+  // Pläne und gemerkte Outfits beim Öffnen der Ansicht laden.
+  useEffect(() => {
+    if (view !== "planen") return;
+    const heute = new Date().toISOString().slice(0, 10);
+    const in14 = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+    Promise.all([api.plan(heute, in14), api.gespeicherteOutfits()])
+      .then(([p, g]) => { setPlaene(p); setGemerkte(g); })
+      .catch((err) => fail(err, "Die Planung war nicht abrufbar."));
+  }, [view, fail]);
+
   // Die Bilanz wird bei jedem Aufruf frisch geholt: sie hängt am
   // Trageprotokoll, das sich zwischen zwei Blicken geändert haben kann.
   useEffect(() => {
     if (view !== "bilanz") return;
     api.stats().then(setStats).catch((err) => fail(err, "Die Bilanz war nicht abrufbar."));
+    api.aussortieren().then(setAusmisten).catch(() => {});
   }, [view, items, fail]);
 
   // Das Vokabular ändert sich nur mit einer neuen Fassung des Servers,
@@ -407,7 +428,7 @@ export default function App() {
         teile: parts.map((p) => p.id), anlass: occasion, temp, punkte,
       });
       setItems(await api.items());
-      merke(i, { getragen: true, laeuft: null });
+      merke(i, { getragen: true, laeuft: null, logId: res?.id });
       // Die Wäsche passiert automatisch — dann soll sie auch dastehen,
       // sonst wundert man sich, warum ein Teil plötzlich fehlt.
       const w = res?.waesche || [];
@@ -450,6 +471,19 @@ export default function App() {
     slowPatch.current = setTimeout(() => updateItem(id, patch), 400);
   }
 
+  // Was der Schrank gerade zeigt. Eingemottetes ist standardmäßig aus dem
+  // Weg — es soll den Blick auf das nicht verstellen, was man tragen kann.
+  const sichtbareTeile = items.filter((it) => {
+    if (Boolean(it.archived) !== zeigeArchiv) return false;
+    if (filterKat && it.category !== filterKat) return false;
+    const q = suche.trim().toLowerCase();
+    if (!q) return true;
+    return [it.name, it.brand, it.material, it.materialSecondary, it.colorName,
+            it.category, it.subcategory, it.size]
+      .filter(Boolean)
+      .some((feld) => String(feld).toLowerCase().includes(q));
+  });
+
   // Liste aus dem Server-Vokabular, sonst die eingebaute.
   function V(key, fallback) {
     const list = vocab?.[key];
@@ -463,6 +497,99 @@ export default function App() {
       setDetail((d) => (d && d.id === id ? updated : d));
     } catch (err) {
       fail(err, "Das Teil konnte nicht freigegeben werden.");
+    }
+  }
+
+  // Die nächsten sieben Tage. Mehr braucht niemand im Voraus, und der
+  // Blick bleibt auf eine Bildschirmhöhe beschränkt.
+  function naechsteTage() {
+    const heute = new Date();
+    return Array.from({ length: 7 }, (_, n) => {
+      const d = new Date(heute.getTime() + n * 86400000);
+      return {
+        iso: d.toISOString().slice(0, 10),
+        kurz: n === 0
+          ? "heute"
+          : d.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" }),
+        heute: n === 0,
+      };
+    });
+  }
+
+  async function ladePlanung() {
+    const heute = new Date().toISOString().slice(0, 10);
+    const in14 = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+    const [p, g] = await Promise.all([api.plan(heute, in14), api.gespeicherteOutfits()]);
+    setPlaene(p);
+    setGemerkte(g);
+  }
+
+  async function planLoeschen(datum) {
+    try {
+      await api.planLoeschen(datum);
+      await ladePlanung();
+    } catch (err) {
+      fail(err, "Der Eintrag ließ sich nicht entfernen.");
+    }
+  }
+
+  async function gemerktesLoeschen(id) {
+    try {
+      await api.outfitLoeschen(id);
+      await ladePlanung();
+    } catch (err) {
+      fail(err, "Das Outfit ließ sich nicht entfernen.");
+    }
+  }
+
+  async function packlisteBauen() {
+    setBusy("Rechne die Packliste");
+    try {
+      setPackListe(await api.packliste({ tage: packTage, temp: packTemp, anlass: occasion }));
+    } catch (err) {
+      fail(err, "Die Packliste ließ sich nicht berechnen.");
+    }
+    setBusy("");
+  }
+
+  async function ootdHochladen(i, logId, file) {
+    if (!file) return;
+    setBusy("Speichere das Foto");
+    try {
+      await api.ootdHochladen(logId, file);
+      merke(i, { foto: true });
+      setNotice("Foto zum Outfit gespeichert.");
+    } catch (err) {
+      fail(err, "Das Foto ließ sich nicht speichern.");
+    }
+    setBusy("");
+  }
+
+  async function outfitMerken(parts) {
+    const name = window.prompt("Wie soll das Outfit heißen?");
+    if (!name?.trim()) return;
+    try {
+      await api.outfitSpeichern({
+        name: name.trim(), teile: parts.map((p) => p.id), anlass: occasion,
+      });
+      setNotice(`„${name.trim()}" gemerkt.`);
+    } catch (err) {
+      fail(err, "Das Outfit konnte nicht gemerkt werden.");
+    }
+  }
+
+  async function outfitEinplanen(parts) {
+    // Vorgabe ist morgen — der häufigste Fall ist "was ziehe ich morgen an".
+    const morgen = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const datum = window.prompt("Für welchen Tag? (JJJJ-MM-TT)", morgen);
+    if (!datum?.trim()) return;
+    try {
+      await api.planSetzen(datum.trim(), {
+        teile: parts.map((p) => p.id), anlass: occasion,
+      });
+      setNotice(`Für den ${datum.trim()} eingeplant. Diese Teile bleiben bis dahin verfügbar.`);
+    } catch (err) {
+      fail(err, "Das konnte nicht eingeplant werden.");
     }
   }
 
@@ -633,7 +760,7 @@ export default function App() {
         </div>
         <nav className="mt-4 flex gap-6">
           {[["heute", "Heute"], ["schrank", `Schrank ${items.length}`],
-            ["fehlt", "Fehlt"], ["bilanz", "Bilanz"]].map(
+            ["planen", "Planen"], ["fehlt", "Fehlt"], ["bilanz", "Bilanz"]].map(
             ([k, l]) => (
               <button
                 key={k}
@@ -935,6 +1062,7 @@ export default function App() {
                    ohne sichtbaren Zustand hier wirkt der Druck folgenlos. */
                 const z = outfitState[i] || {};
                 return (
+                  <>
                   <div className="mt-5 flex gap-2">
                     <button
                       onClick={() => markWorn(i, o.teile, o.punkte)}
@@ -983,6 +1111,38 @@ export default function App() {
                       {z.urteil === "schlecht" ? "Nein ✓" : "Nein"}
                     </button>
                   </div>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => outfitMerken(o.teile)}
+                      style={{ borderColor: C.line, color: C.dim, letterSpacing: "0.16em" }}
+                      className="flex-1 py-3 text-[10px] uppercase border"
+                    >
+                      Merken
+                    </button>
+                    <button
+                      onClick={() => outfitEinplanen(o.teile)}
+                      style={{ borderColor: C.line, color: C.dim, letterSpacing: "0.16em" }}
+                      className="flex-1 py-3 text-[10px] uppercase border"
+                    >
+                      Einplanen
+                    </button>
+                  </div>
+                  {/* Foto erst, wenn das Outfit vermerkt ist — vorher gibt
+                      es keinen Protokolleintrag, an den es gehören könnte. */}
+                  {z.logId && (
+                    <label
+                      style={{ borderColor: C.line, color: z.foto ? C.text : C.dim,
+                               letterSpacing: "0.16em" }}
+                      className="mt-2 block cursor-pointer border py-3 text-center text-[10px] uppercase"
+                    >
+                      {z.foto ? "Foto gespeichert ✓" : "Foto vom Outfit"}
+                      <input
+                        type="file" accept="image/*" capture="environment" className="hidden"
+                        onChange={(e) => ootdHochladen(i, z.logId, e.target.files?.[0])}
+                      />
+                    </label>
+                  )}
+                  </>
                 );
               })()}
             </section>
@@ -1010,11 +1170,52 @@ export default function App() {
               </button>
             </div>
           )}
+          {items.length > 0 && (
+            <div className="mb-4">
+              <input
+                value={suche}
+                onChange={(e) => setSuche(e.target.value)}
+                placeholder="Suchen: Name, Marke, Material, Farbe …"
+                style={{ background: "transparent", color: C.text, borderColor: C.line }}
+                className="w-full border-b pb-2 text-sm"
+              />
+              <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                {["", ...V("kategorien", CATEGORIES)].map((k) => (
+                  <button
+                    key={k || "alle"}
+                    onClick={() => setFilterKat(k)}
+                    style={{
+                      borderColor: filterKat === k ? C.text : C.line,
+                      color: filterKat === k ? C.text : C.faint,
+                      letterSpacing: "0.14em",
+                    }}
+                    className="whitespace-nowrap border px-3 py-2 text-[10px] uppercase"
+                  >
+                    {k || "alle"}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setZeigeArchiv((v) => !v)}
+                  style={{
+                    borderColor: zeigeArchiv ? C.text : C.line,
+                    color: zeigeArchiv ? C.text : C.faint,
+                    letterSpacing: "0.14em",
+                  }}
+                  className="whitespace-nowrap border px-3 py-2 text-[10px] uppercase"
+                >
+                  Eingemottet
+                </button>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-3 gap-3">
-            {items.map((it) => (
+            {sichtbareTeile.map((it) => (
               <button key={it.id} onClick={() => setDetail(it)} className="text-left">
                 <div
-                  style={{ background: C.surface, opacity: it.paused ? 0.35 : 1 }}
+                  style={{
+                    background: C.surface,
+                    opacity: it.paused || it.archived || waescheTage(it) > 0 ? 0.35 : 1,
+                  }}
                   className="aspect-square overflow-hidden flex items-center justify-center"
                 >
                   {it.imagePath ? (
@@ -1027,10 +1228,184 @@ export default function App() {
                   )}
                 </div>
                 <p className="text-[11px] mt-2 truncate">{it.name}</p>
-                <Label>{it.fit}</Label>
+                <Label>
+                  {waescheTage(it) > 0
+                    ? `Wäsche · ${waescheText(waescheTage(it))}`
+                    : it.archived
+                      ? "eingemottet"
+                      : [it.brand, it.material].filter(Boolean).join(" · ") || it.fit}
+                </Label>
               </button>
             ))}
           </div>
+          {items.length > 0 && sichtbareTeile.length === 0 && (
+            <p style={{ color: C.faint }} className="py-10 text-center text-sm">
+              Nichts gefunden.
+            </p>
+          )}
+        </main>
+      )}
+
+      {/* ─────────────────────────── Planen ─────────────────────────── */}
+      {view === "planen" && (
+        <main className="px-5 pb-32 pt-5">
+          <Label>die nächsten Tage</Label>
+          <div className="mt-2">
+            {naechsteTage().map(({ iso, kurz, heute }) => {
+              const p = plaene.find((x) => x.datum === iso);
+              const teile = (p?.itemIds || [])
+                .map((id) => items.find((i) => i.id === id))
+                .filter(Boolean);
+              return (
+                <div key={iso} style={{ borderColor: C.line }}
+                     className="flex items-center gap-3 border-b py-3">
+                  <div className="w-20 shrink-0">
+                    <p style={{ color: heute ? C.text : C.dim }} className="text-sm">{kurz}</p>
+                    {heute && <Label>heute</Label>}
+                  </div>
+                  {teile.length ? (
+                    <>
+                      <div className="flex flex-1 gap-1 overflow-hidden">
+                        {teile.map((t) => (
+                          <div key={t.id} style={{ background: C.surface }}
+                               className="h-12 w-12 shrink-0 overflow-hidden">
+                            {t.imagePath && (
+                              <img src={imageUrl(t.id)} alt={t.name} loading="lazy"
+                                   className="h-full w-full object-contain" />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <button onClick={() => planLoeschen(iso)}
+                              style={{ color: C.faint, letterSpacing: "0.14em" }}
+                              className="shrink-0 text-[10px] uppercase">
+                        weg
+                      </button>
+                    </>
+                  ) : (
+                    <p style={{ color: C.faint }} className="flex-1 text-xs">nichts geplant</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p style={{ color: C.faint }} className="mt-3 text-xs leading-relaxed">
+            Eingeplante Teile bleiben verfügbar — die Wäsche nimmt dir nicht weg, was du für
+            einen der nächsten Tage vorgesehen hast.
+          </p>
+
+          <section className="mt-8">
+            <Label>gemerkte Outfits</Label>
+            {gemerkte.length === 0 ? (
+              <p style={{ color: C.faint }} className="mt-2 text-xs leading-relaxed">
+                Noch keine. Unter „Heute" bei einem Vorschlag auf „Merken" tippen.
+              </p>
+            ) : (
+              <div className="mt-2">
+                {gemerkte.map((o) => {
+                  const teile = o.itemIds
+                    .map((id) => items.find((i) => i.id === id))
+                    .filter(Boolean);
+                  const fehlend = o.itemIds.length - teile.length;
+                  return (
+                    <div key={o.id} style={{ borderColor: C.line }} className="border-b py-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm">{o.name}</p>
+                        <div className="flex gap-3">
+                          <button onClick={() => outfitEinplanen(teile)}
+                                  style={{ color: C.dim, letterSpacing: "0.14em" }}
+                                  className="text-[10px] uppercase">
+                            einplanen
+                          </button>
+                          <button onClick={() => gemerktesLoeschen(o.id)}
+                                  style={{ color: C.faint, letterSpacing: "0.14em" }}
+                                  className="text-[10px] uppercase">
+                            weg
+                          </button>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex gap-1">
+                        {teile.map((t) => (
+                          <div key={t.id} style={{ background: C.surface }}
+                               className="h-12 w-12 shrink-0 overflow-hidden">
+                            {t.imagePath && (
+                              <img src={imageUrl(t.id)} alt={t.name} loading="lazy"
+                                   className="h-full w-full object-contain" />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      {fehlend > 0 && (
+                        <p style={{ color: C.faint }} className="mt-1 text-xs">
+                          {fehlend} {fehlend === 1 ? "Teil" : "Teile"} nicht mehr im Schrank
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <section className="mt-8">
+            <Label>Koffer packen</Label>
+            <p style={{ color: C.faint }} className="mt-1 text-xs leading-relaxed">
+              Die kleinste Menge Teile, aus der sich für die Reise genug Outfits bauen lassen.
+            </p>
+            <div className="mt-3 flex items-end gap-3">
+              <div className="w-20">
+                <Label>Tage</Label>
+                <input type="number" min="1" max="30" inputMode="numeric" value={packTage}
+                       onChange={(e) => setPackTage(Number(e.target.value) || 1)}
+                       style={{ background: "transparent", color: C.text, borderColor: C.line }}
+                       className="w-full border-b pb-1 text-sm" />
+              </div>
+              <div className="w-24">
+                <Label>Grad</Label>
+                <input type="number" min="-20" max="45" inputMode="numeric" value={packTemp}
+                       onChange={(e) => setPackTemp(Number(e.target.value))}
+                       style={{ background: "transparent", color: C.text, borderColor: C.line }}
+                       className="w-full border-b pb-1 text-sm" />
+              </div>
+              <button onClick={packlisteBauen} disabled={!!busy}
+                      style={{ background: C.text, color: C.bg, letterSpacing: "0.16em" }}
+                      className="flex-1 py-3 text-[10px] uppercase">
+                Rechnen
+              </button>
+            </div>
+
+            {packListe && (
+              <div className="mt-4">
+                <p style={{ color: C.dim }} className="text-sm">
+                  {packListe.teile.length} {packListe.teile.length === 1 ? "Teil" : "Teile"} für{" "}
+                  {packListe.outfits.length}{" "}
+                  {packListe.outfits.length === 1 ? "Outfit" : "Outfits"}
+                </p>
+                {!packListe.genug && (
+                  <p style={{ color: C.signal }} className="mt-1 text-xs leading-relaxed">
+                    Für {packListe.tage} Tage reicht der Schrank nicht — mehr Kombinationen gibt
+                    er bei dieser Temperatur nicht her.
+                  </p>
+                )}
+                <ul className="mt-2">
+                  {packListe.teile.map((t) => (
+                    <li key={t.id} style={{ borderColor: C.line }}
+                        className="flex items-center gap-3 border-b py-2">
+                      <div style={{ background: C.surface }}
+                           className="h-10 w-10 shrink-0 overflow-hidden">
+                        {t.imagePath && (
+                          <img src={imageUrl(t.id)} alt={t.name} loading="lazy"
+                               className="h-full w-full object-contain" />
+                        )}
+                      </div>
+                      <span className="flex-1 truncate text-sm">{t.name}</span>
+                      <span style={{ color: C.faint }} className="text-xs">{t.fuerOutfits}×</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
         </main>
       )}
 
@@ -1111,6 +1486,34 @@ export default function App() {
                       >
                         <span>{x.name}</span>
                         <span style={{ color: C.faint }}>seit {x.seitErfassung} Tagen</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {ausmisten?.vorschlaege?.length > 0 && (
+                <section className="mt-7">
+                  <Label>könnte weg</Label>
+                  <p style={{ color: C.faint }} className="mt-1 text-xs leading-relaxed">
+                    Nur ein Vorschlag mit Begründung — was aus dem Schrank fliegt,
+                    entscheidest du. „Einmotten" im Detail eines Teils ist der sanftere Weg.
+                  </p>
+                  <ul className="mt-2">
+                    {ausmisten.vorschlaege.map((x) => (
+                      <li key={x.id} style={{ borderColor: C.line }} className="border-b py-2">
+                        <button
+                          onClick={() => {
+                            const teil = items.find((i) => i.id === x.id);
+                            if (teil) { setDetail(teil); setView("schrank"); }
+                          }}
+                          className="w-full text-left"
+                        >
+                          <span className="text-sm">{x.name}</span>
+                          <span style={{ color: C.faint }} className="block text-xs">
+                            {x.gruende.join(" · ")}
+                          </span>
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -1585,6 +1988,35 @@ export default function App() {
               </p>
             )}
 
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div>
+                <Label>Marke</Label>
+                <input
+                  value={detail.brand || ""}
+                  placeholder="—"
+                  onChange={(e) => updateItemLater(detail.id, { brand: e.target.value || null })}
+                  style={{ background: "transparent", color: C.text, borderColor: C.line }}
+                  className="w-full border-b text-sm pb-1"
+                />
+              </div>
+              <div>
+                <Label>Größe</Label>
+                <input
+                  value={detail.size || ""}
+                  placeholder="—"
+                  onChange={(e) => updateItemLater(detail.id, { size: e.target.value || null })}
+                  style={{ background: "transparent", color: C.text, borderColor: C.line }}
+                  className="w-full border-b text-sm pb-1"
+                />
+              </div>
+            </div>
+            <div className="mt-3">
+              <Field
+                label="Pflege" value={detail.care} options={V("pflege", CARE_LABELS)}
+                onChange={(v) => updateItem(detail.id, { care: v })}
+              />
+            </div>
+
             {/* Preis und Kaufdatum sind freiwillig. Ohne sie funktioniert
                 alles wie bisher; mit ihnen rechnet die Auswertung den
                 Preis pro Tragen aus. */}
@@ -1711,9 +2143,17 @@ export default function App() {
                 Outfit hierzu
               </button>
               <button
+                onClick={() => updateItem(detail.id, { archived: !detail.archived })}
+                style={{ borderColor: C.line, color: C.dim, letterSpacing: "0.16em" }}
+                className="px-4 py-4 text-[10px] uppercase border"
+                title="Eingemottet: bleibt im Bestand, wird aber nicht vorgeschlagen"
+              >
+                {detail.archived ? "Hervorholen" : "Einmotten"}
+              </button>
+              <button
                 onClick={() => removeItem(detail.id)}
                 style={{ borderColor: C.line, color: C.signal, letterSpacing: "0.16em" }}
-                className="px-5 py-4 text-[10px] uppercase border"
+                className="px-4 py-4 text-[10px] uppercase border"
               >
                 Löschen
               </button>

@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS items (
   laundry_until   TEXT,
   price           REAL,
   bought_at       TEXT,
+  brand           TEXT,
+  size            TEXT,
+  care            TEXT,
+  archived        INTEGER NOT NULL DEFAULT 0,
   wear_count      INTEGER NOT NULL DEFAULT 0,
   created_at      TEXT NOT NULL
 );
@@ -72,12 +76,36 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 
 CREATE TABLE IF NOT EXISTS outfit_log (
-  id       TEXT PRIMARY KEY,
-  worn_at  TEXT NOT NULL,
-  item_ids TEXT NOT NULL,
-  occasion TEXT,
-  temp     REAL,
-  score    REAL
+  id         TEXT PRIMARY KEY,
+  worn_at    TEXT NOT NULL,
+  item_ids   TEXT NOT NULL,
+  occasion   TEXT,
+  temp       REAL,
+  score      REAL,
+  photo_path TEXT
+);
+
+-- Gespeicherte Outfits: ein Vorschlag, der funktioniert hat, unter einem
+-- Namen. Die Teile stehen als JSON-Liste drin und nicht als Fremdschluessel,
+-- weil ein geloeschtes Teil das Outfit nicht mitreissen soll — es fehlt dann
+-- eben eines, und das sieht man in der Oberflaeche.
+CREATE TABLE IF NOT EXISTS saved_outfits (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  item_ids   TEXT NOT NULL,
+  notes      TEXT,
+  occasion   TEXT,
+  created_at TEXT NOT NULL
+);
+
+-- Geplante Outfits: was an welchem Tag angezogen werden soll. Ein Tag, ein
+-- Eintrag — deshalb plan_date als Primaerschluessel.
+CREATE TABLE IF NOT EXISTS planned_outfits (
+  plan_date  TEXT PRIMARY KEY,
+  item_ids   TEXT NOT NULL,
+  occasion   TEXT,
+  notes      TEXT,
+  created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS trends_cache (
@@ -104,7 +132,8 @@ FIELDS = [
     ("formality_manual", "formalityManual"), ("image_path", "imagePath"),
     ("cutout", "cutout"), ("paused", "paused"), ("last_worn", "lastWorn"),
     ("laundry_until", "laundryUntil"), ("price", "price"),
-    ("bought_at", "boughtAt"),
+    ("bought_at", "boughtAt"), ("brand", "brand"), ("size", "size"),
+    ("care", "care"), ("archived", "archived"),
     ("wear_count", "wearCount"), ("created_at", "createdAt"),
 ]
 COL_TO_KEY = dict(FIELDS)
@@ -151,6 +180,11 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("items", "laundry_until", "TEXT"),
     ("items", "price", "REAL"),
     ("items", "bought_at", "TEXT"),
+    ("items", "brand", "TEXT"),
+    ("items", "size", "TEXT"),
+    ("items", "care", "TEXT"),
+    ("items", "archived", "INTEGER NOT NULL DEFAULT 0"),
+    ("outfit_log", "photo_path", "TEXT"),
 ]
 
 
@@ -229,7 +263,7 @@ def init() -> None:
 
 def row_to_item(row: sqlite3.Row) -> dict[str, Any]:
     item = {COL_TO_KEY[c]: row[c] for c in row.keys() if c in COL_TO_KEY}
-    for flag in ("cutout", "paused", "warmthManual", "formalityManual"):
+    for flag in ("cutout", "paused", "warmthManual", "formalityManual", "archived"):
         item[flag] = bool(item.get(flag))
     return item
 
@@ -240,7 +274,7 @@ def item_to_row(item: dict[str, Any]) -> dict[str, Any]:
         if key not in item:
             continue
         value = item[key]
-        if key in ("cutout", "paused", "warmthManual", "formalityManual"):
+        if key in ("cutout", "paused", "warmthManual", "formalityManual", "archived"):
             value = 1 if value else 0
         row[col] = value
     return row
@@ -363,6 +397,10 @@ def log_outfit(item_ids: list[str], occasion: str | None,
              "temp": temp, "score": score}
     frist = (datetime.now(timezone.utc)
              + timedelta(days=settings.laundry_days)).isoformat()
+    # Was in den naechsten Tagen eingeplant ist, bleibt verfuegbar — sonst
+    # nimmt die Waesche einem das Hemd weg, das man fuer Freitag vorgemerkt
+    # hat. Wer es trotzdem waschen will, schaltet es von Hand auf pausiert.
+    eingeplant = geplante_teile(datetime.now(timezone.utc).date().isoformat())
     conn = connect()
     with conn:
         conn.execute(
@@ -371,7 +409,8 @@ def log_outfit(item_ids: list[str], occasion: str | None,
         for item_id in item_ids:
             row = conn.execute(
                 "SELECT category FROM items WHERE id = ?", (item_id,)).fetchone()
-            waesche = frist if (row and goes_to_laundry(dict(row))) else None
+            waesche = frist if (row and goes_to_laundry(dict(row))
+                                and item_id not in eingeplant) else None
             conn.execute(
                 """UPDATE items SET last_worn = ?, wear_count = wear_count + 1,
                    laundry_until = COALESCE(?, laundry_until) WHERE id = ?""",
@@ -379,11 +418,110 @@ def log_outfit(item_ids: list[str], occasion: str | None,
     return {**entry, "item_ids": item_ids}
 
 
+def set_outfit_photo(log_id: str, pfad: str) -> None:
+    conn = connect()
+    with conn:
+        conn.execute("UPDATE outfit_log SET photo_path = ? WHERE id = ?", (pfad, log_id))
+
+
 def list_outfit_log(limit: int = 200) -> list[dict[str, Any]]:
     rows = connect().execute(
         "SELECT * FROM outfit_log ORDER BY worn_at DESC LIMIT ?", (limit,))
     return [{**{k: r[k] for k in r.keys()}, "item_ids": json.loads(r["item_ids"])}
             for r in rows]
+
+
+# ── Gespeicherte Outfits ────────────────────────────────────────────────
+
+def _outfit_row(row: sqlite3.Row) -> dict[str, Any]:
+    d = {k: row[k] for k in row.keys()}
+    d["itemIds"] = json.loads(d.pop("item_ids"))
+    if "created_at" in d:
+        d["createdAt"] = d.pop("created_at")
+    if "plan_date" in d:
+        d["datum"] = d.pop("plan_date")
+    return d
+
+
+def list_saved_outfits() -> list[dict[str, Any]]:
+    return [_outfit_row(r) for r in connect().execute(
+        "SELECT * FROM saved_outfits ORDER BY created_at DESC")]
+
+
+def save_outfit(name: str, item_ids: list[str], occasion: str | None = None,
+                notes: str | None = None) -> dict[str, Any]:
+    entry = {"id": new_id("fit"), "name": name,
+             "item_ids": json.dumps(item_ids), "occasion": occasion,
+             "notes": notes, "created_at": now_iso()}
+    conn = connect()
+    with conn:
+        conn.execute(
+            "INSERT INTO saved_outfits (id, name, item_ids, occasion, notes, created_at) "
+            "VALUES (:id, :name, :item_ids, :occasion, :notes, :created_at)", entry)
+    row = connect().execute(
+        "SELECT * FROM saved_outfits WHERE id = ?", (entry["id"],)).fetchone()
+    return _outfit_row(row)
+
+
+def delete_saved_outfit(outfit_id: str) -> bool:
+    conn = connect()
+    with conn:
+        cur = conn.execute("DELETE FROM saved_outfits WHERE id = ?", (outfit_id,))
+    return cur.rowcount > 0
+
+
+# ── Geplante Outfits ────────────────────────────────────────────────────
+
+def list_plans(von: str | None = None, bis: str | None = None) -> list[dict[str, Any]]:
+    sql = "SELECT * FROM planned_outfits"
+    args: list[Any] = []
+    if von and bis:
+        sql += " WHERE plan_date BETWEEN ? AND ?"
+        args = [von, bis]
+    sql += " ORDER BY plan_date"
+    return [_outfit_row(r) for r in connect().execute(sql, args)]
+
+
+def get_plan(datum: str) -> dict[str, Any] | None:
+    row = connect().execute(
+        "SELECT * FROM planned_outfits WHERE plan_date = ?", (datum,)).fetchone()
+    return _outfit_row(row) if row else None
+
+
+def set_plan(datum: str, item_ids: list[str], occasion: str | None = None,
+             notes: str | None = None) -> dict[str, Any]:
+    # Ein Tag, ein Outfit — ein zweiter Eintrag ersetzt den ersten.
+    entry = {"plan_date": datum, "item_ids": json.dumps(item_ids),
+             "occasion": occasion, "notes": notes, "created_at": now_iso()}
+    conn = connect()
+    with conn:
+        conn.execute(
+            "INSERT INTO planned_outfits (plan_date, item_ids, occasion, notes, created_at) "
+            "VALUES (:plan_date, :item_ids, :occasion, :notes, :created_at) "
+            "ON CONFLICT(plan_date) DO UPDATE SET "
+            "  item_ids=excluded.item_ids, occasion=excluded.occasion, "
+            "  notes=excluded.notes, created_at=excluded.created_at", entry)
+    return get_plan(datum)
+
+
+def delete_plan(datum: str) -> bool:
+    conn = connect()
+    with conn:
+        cur = conn.execute("DELETE FROM planned_outfits WHERE plan_date = ?", (datum,))
+    return cur.rowcount > 0
+
+
+def geplante_teile(ab: str) -> set[str]:
+    # Teile, die ab heute noch eingeplant sind.
+    #
+    # Die Waesche darf nichts sperren, was in den naechsten Tagen gebraucht
+    # wird — sonst plant man ein Hemd fuer Freitag ein und die Automatik
+    # nimmt es einem am Mittwoch weg.
+    out: set[str] = set()
+    for row in connect().execute(
+            "SELECT item_ids FROM planned_outfits WHERE plan_date >= ?", (ab,)):
+        out.update(json.loads(row["item_ids"]))
+    return out
 
 
 # ── Trends ──────────────────────────────────────────────────────────────

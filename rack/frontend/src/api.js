@@ -76,6 +76,27 @@ export const api = {
   stats: () => call("/stats"),
   items: () => call("/items"),
   wiederVerfuegbar: (id) => call(`/items/${id}/verfuegbar`, { method: "POST" }),
+
+  gespeicherteOutfits: () => call("/gespeicherte-outfits"),
+  outfitSpeichern: (payload) =>
+    call("/gespeicherte-outfits", { method: "POST", body: payload }),
+  outfitLoeschen: (id) =>
+    call(`/gespeicherte-outfits/${id}`, { method: "DELETE" }),
+
+  plan: (von, bis) =>
+    call(`/plan${von && bis ? `?von=${von}&bis=${bis}` : ""}`),
+  planSetzen: (datum, payload) =>
+    call(`/plan/${datum}`, { method: "PUT", body: payload }),
+  planLoeschen: (datum) => call(`/plan/${datum}`, { method: "DELETE" }),
+
+  packliste: (payload) => call("/packliste", { method: "POST", body: payload }),
+  aussortieren: () => call("/aussortieren"),
+
+  ootdHochladen: (logId, file) => {
+    const fd = new FormData();
+    fd.append("foto", file);
+    return call(`/worn/${logId}/foto`, { method: "POST", form: fd });
+  },
   createItem: (payload) => call("/items", { method: "POST", body: payload }),
   patchItem: (id, patch) => call(`/items/${id}`, { method: "PATCH", body: patch }),
   deleteItem: (id) => call(`/items/${id}`, { method: "DELETE" }),

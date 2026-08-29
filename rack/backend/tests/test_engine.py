@@ -676,3 +676,85 @@ def test_build_ueberspringt_teile_in_der_waesche():
     getragen = {p["id"] for r in e.build(schrank, ctx(temp=16)) for p in r["parts"]}
     assert "t1" in getragen
     assert "t2" not in getragen
+
+
+# ── Archiv ──────────────────────────────────────────────────────────────
+
+def test_eingemottetes_teil_wird_nicht_vorgeschlagen():
+    """Archiviert ist kein Loeschen: das Teil bleibt im Bestand, taucht
+    aber in keinem Vorschlag mehr auf."""
+    assert not e.is_available(item(archived=True))
+    schrank = [
+        item(id="t1", category="Oberteil"),
+        item(id="t2", category="Oberteil", archived=True),
+        item(id="b", category="Unterteil"),
+        item(id="s", category="Schuhe"),
+    ]
+    benutzt = {p["id"] for r in e.build(schrank, ctx(temp=16)) for p in r["parts"]}
+    assert "t1" in benutzt
+    assert "t2" not in benutzt
+
+
+# ── Packliste ───────────────────────────────────────────────────────────
+
+def reise_schrank():
+    return [
+        item(id="t1", category="Oberteil", name="Shirt hell", colorHex="#eeeae4"),
+        item(id="t2", category="Oberteil", name="Shirt dunkel", colorHex="#222222"),
+        item(id="t3", category="Oberteil", name="Pullover", thickness="dick",
+             material="Wolle", sleeve="lang"),
+        item(id="b1", category="Unterteil", name="Jeans", material="Denim"),
+        item(id="b2", category="Unterteil", name="Hose schwarz", colorHex="#1b1b1b"),
+        item(id="s1", category="Schuhe", name="Sneaker", shoeWeight="normal"),
+        item(id="s2", category="Schuhe", name="Boots", shoeWeight="chunky"),
+    ]
+
+
+def test_packliste_deckt_die_gewuenschten_tage():
+    res = e.pack_list(reise_schrank(), ctx(temp=16), tage=3)
+    assert res["tage"] == 3
+    assert len(res["outfits"]) == 3
+    assert res["genug"] is True
+
+
+def test_packliste_bleibt_kleiner_als_der_schrank():
+    """Der Sinn der Uebung: weniger mitnehmen, als man besitzt."""
+    schrank = reise_schrank()
+    res = e.pack_list(schrank, ctx(temp=16), tage=3)
+    assert len(res["teile"]) < len(schrank)
+
+
+def test_packliste_nennt_jedes_teil_nur_einmal():
+    res = e.pack_list(reise_schrank(), ctx(temp=16), tage=4)
+    ids = [t["id"] for t in res["teile"]]
+    assert len(ids) == len(set(ids))
+
+
+def test_packliste_zaehlt_wofuer_ein_teil_gebraucht_wird():
+    res = e.pack_list(reise_schrank(), ctx(temp=16), tage=3)
+    # Jedes gepackte Teil steckt in mindestens einem Outfit, und die
+    # Summe passt zu den Outfits.
+    assert all(t["fuerOutfits"] >= 1 for t in res["teile"])
+    gesamt = sum(t["fuerOutfits"] for t in res["teile"])
+    assert gesamt == sum(len(o["itemIds"]) for o in res["outfits"])
+
+
+def test_packliste_ueberspringt_waesche_und_archiv():
+    from datetime import datetime, timedelta, timezone
+    jetzt = datetime.now(timezone.utc)
+    schrank = reise_schrank()
+    schrank[0]["archived"] = True
+    schrank[1]["laundryUntil"] = (jetzt + timedelta(days=2)).isoformat()
+    res = e.pack_list(schrank, ctx(temp=16), tage=2)
+    ids = {t["id"] for t in res["teile"]}
+    assert "t1" not in ids and "t2" not in ids
+
+
+def test_packliste_kommt_mit_leerem_schrank_klar():
+    res = e.pack_list([], ctx(temp=16), tage=5)
+    assert res["teile"] == [] and res["outfits"] == [] and res["genug"] is False
+
+
+def test_packliste_begrenzt_die_tage():
+    assert e.pack_list(reise_schrank(), ctx(temp=16), tage=0)["tage"] == 1
+    assert e.pack_list(reise_schrank(), ctx(temp=16), tage=999)["tage"] == 30
