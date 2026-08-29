@@ -129,6 +129,78 @@ async def body_analysis(foto: UploadFile = File(...)) -> dict[str, Any]:
     }
 
 
+# ── Vokabular ───────────────────────────────────────────────────────────
+#
+# Eine Quelle fuer beide Seiten. Vorher standen dieselben Listen in
+# engine.py und in constants.js; laufen sie auseinander, zeigt die
+# Oberflaeche stumm "nicht gesetzt" fuer einen Wert, den das Backend
+# kennt — ein Fehler, bei dem nichts kaputtgeht und deshalb niemand
+# etwas merkt.
+
+VOKABULAR: dict[str, list[str]] = {
+    "kategorien": E.CATEGORIES,
+    "accessoires": E.ACCESSORY_TYPES,
+    "schnitte": E.FITS,
+    "laengenOben": E.TOP_LEN,
+    "laengenUnten": E.BOTTOM_LEN,
+    "bundhoehen": E.RISES,
+    "dicken": E.THICKNESS,
+    "muster": E.PATTERNS,
+    "musterGroessen": ["klein", "mittel", "groß"],
+    "materialien": E.MATERIALS,
+    "oberflaechen": ["glatt", "strukturiert", "glänzend", "flauschig", "robust"],
+    "aermel": ["ärmellos", "kurz", "dreiviertel", "lang"],
+    "schuhgewichte": E.SHOE_WEIGHT,
+    "staturen": E.BUILDS,
+    "koerperbau": E.TORSOS,
+}
+
+# Welches Feld gegen welche Liste geprueft wird. Was hier steht, wird
+# beim Speichern verworfen, wenn es nicht passt — ueber die Oberflaeche
+# kann das nicht vorkommen, ueber die API schon.
+FELD_VOKABULAR: dict[str, str] = {
+    "category": "kategorien",
+    "fit": "schnitte",
+    "rise": "bundhoehen",
+    "thickness": "dicken",
+    "pattern": "muster",
+    "patternScale": "musterGroessen",
+    "material": "materialien",
+    "texture": "oberflaechen",
+    "sleeve": "aermel",
+    "shoeWeight": "schuhgewichte",
+}
+
+
+@router.get("/vocab")
+def vocab() -> dict[str, Any]:
+    """Alle Auswahllisten. Das Frontend zieht sie hieraus."""
+    return VOKABULAR
+
+
+def _pruefe_vokabular(attrs: dict[str, Any]) -> list[str]:
+    """Unbekannte Werte entfernen und melden.
+
+    Bewusst verwerfen statt ablehnen: ein einzelnes schiefes Feld soll
+    nicht das ganze Teil unspeicherbar machen. Das Feld bleibt dann leer
+    und faellt in der Oberflaeche auf.
+    """
+    verworfen = []
+    for feld, liste in FELD_VOKABULAR.items():
+        wert = attrs.get(feld)
+        if wert in (None, ""):
+            continue
+        if wert not in VOKABULAR[liste]:
+            verworfen.append(f"{feld}={wert!r}")
+            attrs[feld] = None
+    # subcategory nur bei Accessoires gegen eine feste Liste pruefen;
+    # sonst ist es freie Beschreibung ("Kapuzenpullover").
+    if attrs.get("category") == "Accessoire" and attrs.get("subcategory")             and attrs["subcategory"] not in E.ACCESSORY_TYPES:
+        verworfen.append(f"subcategory={attrs['subcategory']!r}")
+        attrs["subcategory"] = None
+    return verworfen
+
+
 # ── Erfassen ────────────────────────────────────────────────────────────
 
 def _normalise_material(attrs: dict[str, Any]) -> None:
@@ -319,6 +391,9 @@ def create_item(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     attrs["id"] = item_id
     attrs.setdefault("cutout", payload.get("cutout", False))
     _normalise_material(attrs)
+    verworfen = _pruefe_vokabular(attrs)
+    if verworfen:
+        log.info("Unbekannte Werte verworfen: %s", ", ".join(verworfen))
 
     # Nur ohne Handmarkierung neu rechnen.
     computed = E.derive(attrs)
@@ -349,6 +424,11 @@ def patch_item(item_id: str, patch: dict[str, Any] = Body(...)) -> dict[str, Any
     merged = {**current, **patch}
     if "material" in patch:
         _normalise_material(merged)
+    # Wer ein Teil von Hand wieder freigibt, meint auch die Waesche —
+    # sonst drueckt man "verfügbar" und es bleibt trotzdem gesperrt.
+    if patch.get("paused") is False and current.get("paused"):
+        merged["laundryUntil"] = None
+    _pruefe_vokabular(merged)
     # Wer einen Wert von Hand setzt, markiert ihn damit als manuell.
     if "warmth" in patch and patch["warmth"] != current.get("warmth"):
         merged["warmthManual"] = True
@@ -628,13 +708,110 @@ def worn(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     ids = payload.get("teile") or []
     if not ids:
         raise HTTPException(400, "Keine Teile übergeben.")
-    return db.log_outfit(ids, payload.get("anlass"), payload.get("temp"),
-                         payload.get("punkte"))
+    eintrag = db.log_outfit(ids, payload.get("anlass"), payload.get("temp"),
+                            payload.get("punkte"))
+    # Zurueckmelden, was dadurch in die Waesche gewandert ist — die
+    # Oberflaeche sagt es in der Quittung, damit die Automatik nicht
+    # unsichtbar passiert.
+    gewaschen = [db.get_item(i) for i in ids]
+    eintrag["waesche"] = [
+        {"id": x["id"], "name": x.get("name"), "bis": x.get("laundryUntil")}
+        for x in gewaschen if x and x.get("laundryUntil")
+        and E.laundry_remaining(x) > 0
+    ]
+    eintrag["waescheTage"] = settings.laundry_days
+    return eintrag
+
+
+@router.post("/items/{item_id}/verfuegbar")
+def wieder_verfuegbar(item_id: str) -> dict[str, Any]:
+    """Waeschefrist vorzeitig beenden.
+
+    Fuer den Fall, dass ein Teil doch nicht in die Maschine musste.
+    """
+    if not db.get_item(item_id):
+        raise HTTPException(404, "Teil nicht gefunden.")
+    return db.update_item(item_id, {"laundryUntil": None, "paused": False})
 
 
 @router.get("/worn")
 def worn_log(limit: int = Query(200, ge=1, le=1000)) -> list[dict[str, Any]]:
     return db.list_outfit_log(limit)
+
+
+# ── Auswertung ──────────────────────────────────────────────────────────
+
+def _tage_her(iso: str | None) -> int | None:
+    if not iso:
+        return None
+    try:
+        d = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return max(0, (datetime.now(timezone.utc) - d).days)
+
+
+@router.get("/stats")
+def stats() -> dict[str, Any]:
+    """Was das Trageprotokoll hergibt.
+
+    Es wird seit dem ersten Tag mitgeschrieben, war aber nirgends
+    sichtbar. Cost-per-Wear nur fuer Teile mit hinterlegtem Preis — ohne
+    Preis bleibt es bei der Zaehlung.
+    """
+    items = db.list_items()
+    log = db.list_outfit_log(limit=1000)
+
+    def cpw(i: dict[str, Any]) -> float | None:
+        preis, n = i.get("price"), i.get("wearCount") or 0
+        if preis is None or n <= 0:
+            return None
+        return round(float(preis) / n, 2)
+
+    getragen = [i for i in items if (i.get("wearCount") or 0) > 0]
+    nie = [i for i in items if not (i.get("wearCount") or 0)]
+
+    mit_preis = [i for i in items if i.get("price") is not None]
+    investition = round(sum(float(i["price"]) for i in mit_preis), 2)
+
+    def kurz(i: dict[str, Any]) -> dict[str, Any]:
+        return {"id": i["id"], "name": i.get("name"),
+                "kategorie": i.get("category"),
+                "getragen": i.get("wearCount") or 0,
+                "preis": i.get("price"), "proTragen": cpw(i),
+                "zuletzt": i.get("lastWorn"),
+                "tageHer": _tage_her(i.get("lastWorn")),
+                "seitErfassung": _tage_her(i.get("createdAt"))}
+
+    # Ladenhueter: nie getragen, aber lange genug da, um es gekonnt zu haben.
+    ladenhueter = sorted(
+        [kurz(i) for i in nie if (_tage_her(i.get("createdAt")) or 0) >= 30],
+        key=lambda x: -(x["seitErfassung"] or 0))
+
+    return {
+        "teile": len(items),
+        "getragen": len(getragen),
+        "nieGetragen": len(nie),
+        "protokollEintraege": len(log),
+        "investition": investition,
+        "teileMitPreis": len(mit_preis),
+        "teileOhnePreis": len(items) - len(mit_preis),
+        "meistGetragen": sorted([kurz(i) for i in getragen],
+                                key=lambda x: -x["getragen"])[:10],
+        "ladenhueter": ladenhueter[:10],
+        "laengsteNichtGetragen": sorted(
+            [kurz(i) for i in getragen if _tage_her(i.get("lastWorn")) is not None],
+            key=lambda x: -(x["tageHer"] or 0))[:10],
+        "besteProTragen": sorted(
+            [kurz(i) for i in mit_preis if cpw(i) is not None],
+            key=lambda x: x["proTragen"])[:10],
+        "inDerWaesche": [
+            {"id": i["id"], "name": i.get("name"),
+             "restTage": round(E.laundry_remaining(i), 1)}
+            for i in items if E.laundry_remaining(i) > 0],
+    }
 
 
 # ── Lueckenanalyse ──────────────────────────────────────────────────────

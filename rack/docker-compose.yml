@@ -46,6 +46,9 @@ services:
       - RACK_MAX_IMAGE_DIM=${RACK_MAX_IMAGE_DIM:-1400}
       - RACK_MODEL_IMAGE_DIM=${RACK_MODEL_IMAGE_DIM:-2000}
       - RACK_CUTOUT=${RACK_CUTOUT:-1}
+      - RACK_REMBG_MODEL=${RACK_REMBG_MODEL:-isnet-general-use}
+      # Getragenes geht automatisch fuer so viele Tage in die Waesche.
+      - RACK_LAUNDRY_DAYS=${RACK_LAUNDRY_DAYS:-3}
 
     volumes:
       - rack_db:/data/db

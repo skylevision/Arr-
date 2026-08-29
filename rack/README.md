@@ -250,6 +250,45 @@ Die fünf Gewichtspunkte für `material` kamen von den größten Posten: silhoue
 0.23→0.22, proportion 0.15→0.14, color 0.16→0.15, warmth 0.15→0.14, formality 0.12→0.11.
 Shoes, pattern und texture blieben unangetastet, beide Sätze summieren sich weiter auf 1.0.
 
+#### Wäsche
+
+Was getragen wurde, geht von selbst in die Wäsche und kommt von selbst zurück. Beim
+Vermerken als getragen setzt `log_outfit()` eine Frist (`RACK_LAUNDRY_DAYS`, Vorgabe drei
+Tage); bis dahin schlägt die Engine das Teil nicht mehr vor. Umgesetzt **ohne
+Hintergrundjob**: gespeichert wird ein Zeitpunkt, „verfügbar" rechnet `is_available()` bei
+jeder Abfrage neu aus. Das überlebt Neustarts, kann nicht auseinanderlaufen und braucht
+keinen Cron im Container.
+
+Nicht jedes Teil gehört nach einmal Tragen in die Maschine: betroffen sind nur
+**Oberteile, Unterteile und Kleider** (`LAUNDRY_CATEGORIES`). Jacken, Schuhe, Gürtel und
+Uhren bleiben verfügbar.
+
+Ein unlesbares Datum sperrt nie ein Teil — im Zweifel ist es verfügbar. Vorzeitig
+freigeben geht im Detail des Teils oder per `POST /api/items/{id}/verfuegbar`.
+
+Das ergänzt `s_fresh`, ersetzt es aber nicht: die Wäsche ist ein harter Ausschluss für
+drei Tage, danach wertet `s_fresh` das Teil noch bis Tag zehn weich ab.
+
+#### Bilanz
+
+`GET /api/stats` wertet das Trageprotokoll aus, das von Anfang an mitgeschrieben, aber
+nirgends sichtbar war: meistgetragene Teile, Ladenhüter (mindestens einen Monat da und nie
+getragen), was gerade in der Wäsche liegt, und — sofern am Teil ein **Preis** hinterlegt
+ist — der Preis pro Tragen. Preis und Kaufdatum sind freiwillig; ohne sie funktioniert
+alles wie zuvor, es fehlt nur diese eine Auswertung.
+
+#### Ein Vokabular für beide Seiten
+
+Die Auswahllisten kommen aus `GET /api/vocab`, das Frontend zieht sie beim Start. Vorher
+standen dieselben Listen doppelt — in `engine.py` und in `constants.js`. Laufen sie
+auseinander, zeigt die Oberfläche stumm „nicht gesetzt" für einen Wert, den das Backend
+kennt: ein Fehler, bei dem nichts kaputtgeht und deshalb niemand etwas merkt. Die
+Konstanten in `constants.js` bleiben als Rückfallebene, wenn der Aufruf scheitert.
+
+Dieselben Listen prüfen beim Speichern die Eingaben (`_pruefe_vokabular`). Unbekannte
+Werte werden **verworfen, nicht abgelehnt** — ein einzelnes schiefes Feld soll nicht das
+ganze Teil unspeicherbar machen. Es bleibt dann leer und fällt in der Oberfläche auf.
+
 #### JavaScript-Semantik
 
 An drei Stellen musste die JavaScript-Semantik ausdrücklich nachgebaut werden, weil

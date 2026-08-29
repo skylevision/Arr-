@@ -326,6 +326,46 @@ def derive(a: Item) -> dict[str, float]:
     }
 
 
+# ── Waesche ─────────────────────────────────────────────────────────────
+#
+# Was getragen wurde, geht von selbst in die Waesche und kommt von selbst
+# zurueck. Umgesetzt ohne Hintergrundjob: beim Tragen wird ein Datum
+# gesetzt, und "verfuegbar" wird bei jeder Abfrage neu ausgerechnet. Das
+# ueberlebt Neustarts, kann nicht auseinanderlaufen und braucht keinen
+# Cron im Container.
+#
+# Nicht jedes Teil gehoert nach einmal Tragen in die Waesche: Jacken,
+# Schuhe, Guertel und Uhren nicht. Nur was direkt auf der Haut liegt.
+LAUNDRY_CATEGORIES = {"Oberteil", "Unterteil", "Kleid"}
+
+
+def goes_to_laundry(item: Item) -> bool:
+    return item.get("category") in LAUNDRY_CATEGORIES
+
+
+def laundry_remaining(item: Item, now_ms: float | None = None) -> float:
+    """Verbleibende Waeschetage, 0 wenn das Teil verfuegbar ist."""
+    until = item.get("laundryUntil")
+    if not until:
+        return 0.0
+    ms = _parse_ms(until)
+    if ms is None:
+        # Kaputtes Datum darf kein Teil dauerhaft sperren.
+        return 0.0
+    now = _now_ms() if now_ms is None else now_ms
+    return max(0.0, (ms - now) / 86400000)
+
+
+def is_available(item: Item, now_ms: float | None = None) -> bool:
+    """Steht das Teil fuer Vorschlaege zur Verfuegung?
+
+    Zwei Gruende dagegen: von Hand pausiert, oder noch in der Waesche.
+    """
+    if item.get("paused"):
+        return False
+    return laundry_remaining(item, now_ms) <= 0
+
+
 # ── Regeln, hart und weich ──────────────────────────────────────────────
 
 VOL = {"oversize": 3, "weit": 2.5, "regular": 2, "cropped": 2, "slim": 1}
@@ -713,14 +753,24 @@ def score(parts: list[Item], ctx: dict, now_ms: float | None = None) -> dict:
     if any(is_acc(p) for p in parts):
         total += 0.02
     total *= fb_factor(parts, ctx.get("fb") or {}) * (0.9 + 0.1 * s_fresh(parts, now_ms))
-    return {"total": min(total, 1), "sub": sub}
+    # "total" bleibt gedeckelt wie in rack.jsx — das ist die Zahl, die
+    # angezeigt wird, und sie soll zwischen 0 und 1 liegen.
+    #
+    # "raw" ist derselbe Wert ungedeckelt und dient nur der Sortierung.
+    # Der Feedbackfaktor geht bis 1.4, deshalb reicht schon eine
+    # Grundbewertung von 0.71, um an die Decke zu stossen: mit wachsendem
+    # Feedback landeten immer mehr Kombinationen auf exakt 1.000 und die
+    # Reihenfolge wurde beliebig. Ungedeckelt sortiert bleibt sie
+    # aussagekraeftig, ohne dass sich eine sichtbare Zahl aendert.
+    return {"total": min(total, 1), "raw": total, "sub": sub}
 
 
 def build(items: list[Item], ctx: dict, level: int = 0,
           now_ms: float | None = None) -> list[dict]:
     """Erzeugt alle zulaessigen Kombinationen, absteigend bewertet."""
     def by(c: str) -> list[Item]:
-        return [i for i in items if i.get("category") == c and not i.get("paused")]
+        return [i for i in items
+                if i.get("category") == c and is_available(i, now_ms)]
 
     tops, bottoms, dresses = by("Oberteil"), by("Unterteil"), by("Kleid")
     shoes, outers, accs = by("Schuhe"), by("Jacke"), by("Accessoire")
@@ -743,17 +793,17 @@ def build(items: list[Item], ctx: dict, level: int = 0,
                         cand = [*core, ac]
                         if violates(cand, ctx, level):
                             continue
-                        s = score(cand, ctx, now_ms)["total"]
+                        s = score(cand, ctx, now_ms)["raw"]
                         if best_acc is None or s > best_acc["s"]:
                             best_acc = {"s": s, "cand": cand}
-                    if best_acc and best_acc["s"] > score(core, ctx, now_ms)["total"]:
+                    if best_acc and best_acc["s"] > score(core, ctx, now_ms)["raw"]:
                         parts = best_acc["cand"]
                 if ctx.get("anchor") and not any(p["id"] == ctx["anchor"] for p in parts):
                     continue
                 if violates(parts, ctx, level):
                     continue
                 sc = score(parts, ctx, now_ms)
-                if best is None or sc["total"] > best["score"]["total"]:
+                if best is None or sc["raw"] > best["score"]["raw"]:
                     best = {"parts": parts, "score": sc}
         if best:
             out.append(best)
@@ -763,7 +813,7 @@ def build(items: list[Item], ctx: dict, level: int = 0,
             finish([t, b])
     for d in dresses:
         finish([d])
-    out.sort(key=lambda o: o["score"]["total"], reverse=True)
+    out.sort(key=lambda o: o["score"]["raw"], reverse=True)
     return out
 
 

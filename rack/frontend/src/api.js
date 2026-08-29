@@ -72,7 +72,10 @@ export const api = {
     return call("/body-analysis", { method: "POST", form: fd });
   },
 
+  vocab: () => call("/vocab"),
+  stats: () => call("/stats"),
   items: () => call("/items"),
+  wiederVerfuegbar: (id) => call(`/items/${id}/verfuegbar`, { method: "POST" }),
   createItem: (payload) => call("/items", { method: "POST", body: payload }),
   patchItem: (id, patch) => call(`/items/${id}`, { method: "PATCH", body: patch }),
   deleteItem: (id) => call(`/items/${id}`, { method: "DELETE" }),

@@ -32,11 +32,16 @@ RUN apt-get update \
 COPY backend/requirements.txt /tmp/requirements.txt
 RUN pip install --prefix=/install -r /tmp/requirements.txt
 
-# u2net vorab holen. Ohne das zieht der erste Start rund 180 MB nach.
+# Freistellungsmodell vorab holen. Ohne das zieht der erste Start rund
+# 180 MB nach. isnet-general-use statt u2net: sauberere Kanten bei
+# Kleidung, vor allem an Strick, Fransen und Kapuzenzuegen. Muss mit
+# RACK_REMBG_MODEL uebereinstimmen, sonst laedt der Container beim
+# ersten Foto nach.
+ARG REMBG_MODEL=isnet-general-use
 ENV PYTHONPATH=/install/lib/python3.12/site-packages \
     U2NET_HOME=/opt/rack/models
 RUN mkdir -p /opt/rack/models \
- && python -c "from rembg import new_session; new_session('u2net')" \
+ && python -c "import sys; from rembg import new_session; new_session(sys.argv[1])" "$REMBG_MODEL" \
  && ls -la /opt/rack/models
 
 
@@ -90,10 +95,11 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Update. Hier einmal vorkompilieren; das Ergebnis spiegelt der
 # Entrypoint ins Datenverzeichnis. Der Pfad zu site-packages muss dabei
 # derselbe sein wie zur Laufzeit, sonst greift der Cache nicht.
+ARG REMBG_MODEL=isnet-general-use
 RUN NUMBA_CACHE_DIR=/opt/rack/numba U2NET_HOME=/opt/rack/models \
     python -c "\
-from PIL import Image; from rembg import new_session, remove; \
-remove(Image.new('RGBA', (320, 320), (200, 200, 200, 255)), session=new_session('u2net'))" \
+import sys; from PIL import Image; from rembg import new_session, remove; \
+remove(Image.new('RGBA', (320, 320), (200, 200, 200, 255)), session=new_session(sys.argv[1]))" "$REMBG_MODEL" \
  && chmod -R a+rX /opt/rack/numba \
  && du -sh /opt/rack/numba
 

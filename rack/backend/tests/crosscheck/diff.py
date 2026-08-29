@@ -9,8 +9,11 @@ weiterhin gegen das Original.
 
 Was bewusst abweicht:
   score.sub.material  gibt es in rack.jsx nicht
+  score.raw           gibt es in rack.jsx nicht (ungedeckelter Wert, nur
+                      zum Sortieren — siehe engine.score)
   score.total         andere Gewichte, weil material 0.05 bekommen hat
-  picks.total         Folge davon
+  picks.total         Folge davon; ausserdem kann die Reihenfolge
+                      abweichen, weil ungedeckelt sortiert wird
   derive.warmth       Vokabular statt Substring-Suche; betrifft nur
                       Materialien, die rack.jsx falsch zuordnete
                       ("Bio-Baumwolle" -> Wolle) oder gar nicht kannte
@@ -29,6 +32,7 @@ erwartet = []
 # Pfade, an denen die Abweichung gewollt ist.
 ERWARTET = [
     re.compile(r"^score\[\d+\]\[\d+\]\.sub\.material$"),
+    re.compile(r"^score\[\d+\]\[\d+\]\.raw$"),
     re.compile(r"^score\[\d+\]\[\d+\]\.total$"),
     re.compile(r"^picks\[\d+\]\.picks\[\d+\]\.total$"),
     re.compile(r"^derive\[\d+\]\.warmth$"),

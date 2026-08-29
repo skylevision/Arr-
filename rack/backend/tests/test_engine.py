@@ -613,3 +613,66 @@ def test_material_ist_kein_harter_ausschluss():
     parts = [item(material="Leinen"), item(id="b", category="Unterteil", material="Leinen"),
              item(id="s", category="Schuhe", material="Leder", warmth=1)]
     assert e.violates(parts, ctx(temp=2), 0) != "Material"
+
+
+def test_sortierung_bleibt_trotz_deckel_unterscheidbar():
+    """Der Feedbackfaktor geht bis 1.4, "total" ist auf 1 gedeckelt.
+
+    Ohne den ungedeckelten "raw"-Wert landeten mit wachsendem Feedback
+    immer mehr Kombinationen auf exakt 1.000 und die Reihenfolge wurde
+    beliebig. Geprueft wird, dass beides nebeneinander existiert und raw
+    den ungedeckelten Wert traegt.
+    """
+    parts = [item(id="t"), item(id="b", category="Unterteil"),
+             item(id="s", category="Schuhe")]
+    c = ctx(temp=16)
+    c["fb"] = {"liked": [e.pair_key("t", "b"), e.pair_key("t", "s"),
+                         e.pair_key("b", "s")], "disliked": []}
+    sc = e.score(parts, c)
+    assert sc["total"] <= 1.0
+    assert sc["raw"] >= sc["total"]
+    ohne = e.score(parts, ctx(temp=16))
+    assert sc["raw"] > ohne["raw"]
+
+
+# ── Waesche ─────────────────────────────────────────────────────────────
+
+def test_waesche_betrifft_nur_getragene_schichten():
+    assert e.goes_to_laundry(item(category="Oberteil"))
+    assert e.goes_to_laundry(item(category="Unterteil"))
+    assert e.goes_to_laundry(item(category="Kleid"))
+    assert not e.goes_to_laundry(item(category="Jacke"))
+    assert not e.goes_to_laundry(item(category="Schuhe"))
+    assert not e.goes_to_laundry(item(category="Accessoire"))
+
+
+def test_waeschefrist_sperrt_und_gibt_wieder_frei():
+    from datetime import datetime, timedelta, timezone
+    jetzt = datetime.now(timezone.utc)
+    drin = item(laundryUntil=(jetzt + timedelta(days=2)).isoformat())
+    raus = item(laundryUntil=(jetzt - timedelta(days=1)).isoformat())
+    assert not e.is_available(drin)
+    assert e.is_available(raus)
+    assert e.laundry_remaining(drin) == pytest.approx(2, abs=0.01)
+    assert e.laundry_remaining(raus) == 0
+
+
+def test_kaputte_waeschefrist_sperrt_kein_teil_dauerhaft():
+    """Ein unlesbares Datum darf ein Teil nicht unbrauchbar machen."""
+    assert e.is_available(item(laundryUntil="quatsch"))
+    assert e.laundry_remaining(item(laundryUntil="quatsch")) == 0
+
+
+def test_build_ueberspringt_teile_in_der_waesche():
+    from datetime import datetime, timedelta, timezone
+    jetzt = datetime.now(timezone.utc)
+    schrank = [
+        item(id="t1", category="Oberteil"),
+        item(id="t2", category="Oberteil",
+             laundryUntil=(jetzt + timedelta(days=2)).isoformat()),
+        item(id="b", category="Unterteil"),
+        item(id="s", category="Schuhe"),
+    ]
+    getragen = {p["id"] for r in e.build(schrank, ctx(temp=16)) for p in r["parts"]}
+    assert "t1" in getragen
+    assert "t2" not in getragen

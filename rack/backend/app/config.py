@@ -50,6 +50,18 @@ class Settings:
         self.model_image_dim = int(_env("RACK_MODEL_IMAGE_DIM", "2000"))
         self.cutout = _env("RACK_CUTOUT", "1") != "0"
 
+        # Wie lange ein getragenes Teil in der Waesche bleibt. Betrifft nur
+        # Oberteile, Unterteile und Kleider — Jacken, Schuhe und
+        # Accessoires wandern nach einmal Tragen nicht in die Maschine.
+        self.laundry_days = float(_env("RACK_LAUNDRY_DAYS", "3"))
+
+        # Freistellungsmodell fuer rembg. isnet-general-use liefert bei
+        # Kleidung sichtbar sauberere Kanten als u2net, besonders an
+        # Strick, Fransen und Kapuzenzuegen — es kostet dafuer etwas mehr
+        # Zeit je Foto. Muss zum Modell passen, das im Image liegt
+        # (Dockerfile laedt genau dieses vor).
+        self.rembg_model = _env("RACK_REMBG_MODEL", "isnet-general-use")
+
     @property
     def ai_enabled(self) -> bool:
         return bool(self.api_key)

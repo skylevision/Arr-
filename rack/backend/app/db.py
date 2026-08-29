@@ -13,7 +13,7 @@ import logging
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .config import settings
@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS items (
   cutout          INTEGER NOT NULL DEFAULT 0,
   paused          INTEGER NOT NULL DEFAULT 0,
   last_worn       TEXT,
+  laundry_until   TEXT,
+  price           REAL,
+  bought_at       TEXT,
   wear_count      INTEGER NOT NULL DEFAULT 0,
   created_at      TEXT NOT NULL
 );
@@ -100,6 +103,8 @@ FIELDS = [
     ("formality", "formality"), ("warmth_manual", "warmthManual"),
     ("formality_manual", "formalityManual"), ("image_path", "imagePath"),
     ("cutout", "cutout"), ("paused", "paused"), ("last_worn", "lastWorn"),
+    ("laundry_until", "laundryUntil"), ("price", "price"),
+    ("bought_at", "boughtAt"),
     ("wear_count", "wearCount"), ("created_at", "createdAt"),
 ]
 COL_TO_KEY = dict(FIELDS)
@@ -143,6 +148,9 @@ def connect() -> sqlite3.Connection:
 MIGRATIONS: list[tuple[str, str, str]] = [
     # (Tabelle, Spalte, Deklaration)
     ("items", "material_secondary", "TEXT"),
+    ("items", "laundry_until", "TEXT"),
+    ("items", "price", "REAL"),
+    ("items", "bought_at", "TEXT"),
 ]
 
 
@@ -342,18 +350,32 @@ def set_feedback(pair: str, verdict: str | None) -> None:
 
 def log_outfit(item_ids: list[str], occasion: str | None,
                temp: float | None, score: float | None) -> dict[str, Any]:
+    """Outfit protokollieren und die getragenen Teile in die Waesche geben.
+
+    Die Waeschefrist wird hier gesetzt, nicht in der API: so landet sie
+    auch dann in der Datenbank, wenn das Protokollieren spaeter von
+    woanders aufgerufen wird.
+    """
+    from .engine import goes_to_laundry
+
     entry = {"id": new_id("log"), "worn_at": now_iso(),
              "item_ids": json.dumps(item_ids), "occasion": occasion,
              "temp": temp, "score": score}
+    frist = (datetime.now(timezone.utc)
+             + timedelta(days=settings.laundry_days)).isoformat()
     conn = connect()
     with conn:
         conn.execute(
             """INSERT INTO outfit_log (id, worn_at, item_ids, occasion, temp, score)
                VALUES (:id, :worn_at, :item_ids, :occasion, :temp, :score)""", entry)
         for item_id in item_ids:
+            row = conn.execute(
+                "SELECT category FROM items WHERE id = ?", (item_id,)).fetchone()
+            waesche = frist if (row and goes_to_laundry(dict(row))) else None
             conn.execute(
-                "UPDATE items SET last_worn = ?, wear_count = wear_count + 1 WHERE id = ?",
-                (entry["worn_at"], item_id))
+                """UPDATE items SET last_worn = ?, wear_count = wear_count + 1,
+                   laundry_until = COALESCE(?, laundry_until) WHERE id = ?""",
+                (entry["worn_at"], waesche, item_id))
     return {**entry, "item_ids": item_ids}
 
 

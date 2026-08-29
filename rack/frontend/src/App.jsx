@@ -13,6 +13,22 @@ import {
    bleiben Darstellung und Bedienung.
    ═══════════════════════════════════════════════════════════════════ */
 
+// Verbleibende Wäschetage eines Teils. Die Frist steht als Zeitpunkt im
+// Datensatz, ausgerechnet wird sie hier — so stimmt die Anzeige auch,
+// wenn die App lange offen liegt, ohne dass etwas nachgeladen wird.
+function waescheTage(item) {
+  if (!item?.laundryUntil) return 0;
+  const bis = new Date(item.laundryUntil).getTime();
+  if (Number.isNaN(bis)) return 0;
+  return Math.max(0, (bis - Date.now()) / 86400000);
+}
+
+function waescheText(tage) {
+  if (tage <= 0) return "";
+  if (tage < 1) return `noch ${Math.max(1, Math.round(tage * 24))} h`;
+  return `noch ${Math.ceil(tage)} ${Math.ceil(tage) === 1 ? "Tag" : "Tage"}`;
+}
+
 const Label = ({ children, style }) => (
   <span
     style={{ fontFamily: SANS, color: C.dim, letterSpacing: "0.18em", fontSize: 9, ...style }}
@@ -56,6 +72,12 @@ export default function App() {
   const [qIndex, setQIndex] = useState(0);
   const [progress, setProgress] = useState(null);
   const slowPatch = useRef(null);
+  // Auswahllisten kommen vom Server (/api/vocab). Die Konstanten in
+  // constants.js bleiben als Rückfallebene, damit die Oberfläche auch
+  // bedienbar ist, wenn der Aufruf scheitert — sie sind dann aber
+  // womöglich veraltet, deshalb ist der Server die Wahrheit.
+  const [vocab, setVocab] = useState(null);
+  const [stats, setStats] = useState(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -101,6 +123,20 @@ export default function App() {
     setHealth(hp);
     setOffline(false);
     setNeedToken(false);
+  }, []);
+
+  // Die Bilanz wird bei jedem Aufruf frisch geholt: sie hängt am
+  // Trageprotokoll, das sich zwischen zwei Blicken geändert haben kann.
+  useEffect(() => {
+    if (view !== "bilanz") return;
+    api.stats().then(setStats).catch((err) => fail(err, "Die Bilanz war nicht abrufbar."));
+  }, [view, items, fail]);
+
+  // Das Vokabular ändert sich nur mit einer neuen Fassung des Servers,
+  // deshalb einmal beim Start und bewusst ohne Fehlerbehandlung: schlägt
+  // es fehl, greifen die eingebauten Listen und die App bleibt bedienbar.
+  useEffect(() => {
+    api.vocab().then(setVocab).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -367,10 +403,27 @@ export default function App() {
     if (jetzt.laeuft || jetzt.getragen) return;
     merke(i, { laeuft: "getragen" });
     try {
-      await api.worn({ teile: parts.map((p) => p.id), anlass: occasion, temp, punkte });
+      const res = await api.worn({
+        teile: parts.map((p) => p.id), anlass: occasion, temp, punkte,
+      });
       setItems(await api.items());
       merke(i, { getragen: true, laeuft: null });
-      setNotice("Als getragen vermerkt. Diese Teile kommen ein paar Tage seltener dran.");
+      // Die Wäsche passiert automatisch — dann soll sie auch dastehen,
+      // sonst wundert man sich, warum ein Teil plötzlich fehlt.
+      const w = res?.waesche || [];
+      if (w.length) {
+        const namen = w.map((x) => x.name).filter(Boolean);
+        const liste = namen.length > 2
+          ? `${namen.slice(0, 2).join(", ")} und ${namen.length - 2} weitere`
+          : namen.join(" und ");
+        const tage = res?.waescheTage || 3;
+        setNotice(
+          `Vermerkt. ${liste} ${namen.length === 1 ? "geht" : "gehen"} für `
+          + `${tage % 1 ? tage : Math.round(tage)} Tage in die Wäsche.`,
+        );
+      } else {
+        setNotice("Als getragen vermerkt. Diese Teile kommen ein paar Tage seltener dran.");
+      }
     } catch (err) {
       merke(i, { laeuft: null });
       fail(err, "Das konnte nicht vermerkt werden.");
@@ -395,6 +448,22 @@ export default function App() {
     setDetail((d) => (d && d.id === id ? { ...d, ...patch } : d));
     clearTimeout(slowPatch.current);
     slowPatch.current = setTimeout(() => updateItem(id, patch), 400);
+  }
+
+  // Liste aus dem Server-Vokabular, sonst die eingebaute.
+  function V(key, fallback) {
+    const list = vocab?.[key];
+    return Array.isArray(list) && list.length ? list : fallback;
+  }
+
+  async function wiederVerfuegbar(id) {
+    try {
+      const updated = await api.wiederVerfuegbar(id);
+      setItems((list) => list.map((i) => (i.id === id ? updated : i)));
+      setDetail((d) => (d && d.id === id ? updated : d));
+    } catch (err) {
+      fail(err, "Das Teil konnte nicht freigegeben werden.");
+    }
   }
 
   async function removeItem(id) {
@@ -563,7 +632,8 @@ export default function App() {
           </button>
         </div>
         <nav className="mt-4 flex gap-6">
-          {[["heute", "Heute"], ["schrank", `Schrank ${items.length}`], ["fehlt", "Fehlt"]].map(
+          {[["heute", "Heute"], ["schrank", `Schrank ${items.length}`],
+            ["fehlt", "Fehlt"], ["bilanz", "Bilanz"]].map(
             ([k, l]) => (
               <button
                 key={k}
@@ -964,6 +1034,127 @@ export default function App() {
         </main>
       )}
 
+      {/* ─────────────────────────── Bilanz ─────────────────────────── */}
+      {view === "bilanz" && (
+        <main className="px-5 pb-32 pt-5">
+          {!stats ? (
+            <p style={{ color: C.dim }} className="text-sm">Wird geladen …</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  [stats.teile, "Teile"],
+                  [stats.getragen, "schon getragen"],
+                  [stats.protokollEintraege, "Outfits notiert"],
+                ].map(([wert, text]) => (
+                  <div key={text} style={{ borderColor: C.line }} className="border p-3">
+                    <div style={{ fontFamily: DISPLAY, fontSize: 30 }}>{wert}</div>
+                    <Label>{text}</Label>
+                  </div>
+                ))}
+              </div>
+
+              {stats.inDerWaesche?.length > 0 && (
+                <section className="mt-7">
+                  <Label>gerade in der Wäsche</Label>
+                  <ul className="mt-2">
+                    {stats.inDerWaesche.map((x) => (
+                      <li
+                        key={x.id}
+                        style={{ borderColor: C.line, color: C.dim }}
+                        className="flex justify-between border-b py-2 text-sm"
+                      >
+                        <span>{x.name}</span>
+                        <span style={{ color: C.faint }}>
+                          {x.restTage < 1
+                            ? `noch ${Math.max(1, Math.round(x.restTage * 24))} h`
+                            : `noch ${Math.ceil(x.restTage)} Tage`}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {stats.meistGetragen?.length > 0 && (
+                <section className="mt-7">
+                  <Label>am häufigsten getragen</Label>
+                  <ul className="mt-2">
+                    {stats.meistGetragen.map((x) => (
+                      <li
+                        key={x.id}
+                        style={{ borderColor: C.line }}
+                        className="flex justify-between border-b py-2 text-sm"
+                      >
+                        <span>{x.name}</span>
+                        <span style={{ color: C.faint }}>
+                          {x.getragen}×{x.proTragen != null ? ` · ${x.proTragen} €` : ""}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {stats.ladenhueter?.length > 0 && (
+                <section className="mt-7">
+                  <Label>liegt nur herum</Label>
+                  <p style={{ color: C.faint }} className="mt-1 text-xs">
+                    Seit mindestens einem Monat da und noch nie getragen.
+                  </p>
+                  <ul className="mt-2">
+                    {stats.ladenhueter.map((x) => (
+                      <li
+                        key={x.id}
+                        style={{ borderColor: C.line }}
+                        className="flex justify-between border-b py-2 text-sm"
+                      >
+                        <span>{x.name}</span>
+                        <span style={{ color: C.faint }}>seit {x.seitErfassung} Tagen</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              <section className="mt-7">
+                <Label>Preis pro Tragen</Label>
+                {stats.teileMitPreis === 0 ? (
+                  <p style={{ color: C.faint }} className="mt-2 text-xs leading-relaxed">
+                    Noch kein Teil hat einen Preis. Trag ihn im Detail eines Teils ein — dann
+                    rechnet die Bilanz aus, was dich jedes Tragen kostet.
+                  </p>
+                ) : (
+                  <>
+                    <p style={{ color: C.dim }} className="mt-2 text-sm">
+                      {stats.investition.toFixed(2)} € über {stats.teileMitPreis}{" "}
+                      {stats.teileMitPreis === 1 ? "Teil" : "Teile"}
+                      {stats.teileOhnePreis > 0
+                        ? ` · ${stats.teileOhnePreis} ohne Preisangabe`
+                        : ""}
+                    </p>
+                    <ul className="mt-2">
+                      {stats.besteProTragen.map((x) => (
+                        <li
+                          key={x.id}
+                          style={{ borderColor: C.line }}
+                          className="flex justify-between border-b py-2 text-sm"
+                        >
+                          <span>{x.name}</span>
+                          <span style={{ color: C.faint }}>
+                            {x.proTragen} € · {x.getragen}×
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </section>
+            </>
+          )}
+        </main>
+      )}
+
       {/* ──────────────────────────── Fehlt ─────────────────────────── */}
       {view === "fehlt" && (
         <main className="px-5 pb-32 pt-5">
@@ -1143,64 +1334,64 @@ export default function App() {
 
             <div className="mt-5 grid grid-cols-2 gap-3">
               <Field
-                label="Kategorie" value={attrs.category} options={CATEGORIES}
+                label="Kategorie" value={attrs.category} options={V("kategorien", CATEGORIES)}
                 flagged={flagged("category")} onChange={(v) => patchQueue({ category: v })}
               />
               {attrs.category === "Accessoire" ? (
                 <Field
-                  label="Art" value={attrs.subcategory} options={ACCESSORY_TYPES}
+                  label="Art" value={attrs.subcategory} options={V("accessoires", ACCESSORY_TYPES)}
                   flagged={flagged("subcategory")} onChange={(v) => patchQueue({ subcategory: v })}
                 />
               ) : (
                 <Field
-                  label="Schnitt" value={attrs.fit} options={FITS}
+                  label="Schnitt" value={attrs.fit} options={V("schnitte", FITS)}
                   flagged={flagged("fit")} onChange={(v) => patchQueue({ fit: v })}
                 />
               )}
               {attrs.category !== "Accessoire" && attrs.category !== "Schuhe" && (
                 <Field
                   label="Länge" value={attrs.length}
-                  options={attrs.category === "Unterteil" ? BOTTOM_LEN : TOP_LEN}
+                  options={attrs.category === "Unterteil" ? V("laengenUnten", BOTTOM_LEN) : V("laengenOben", TOP_LEN)}
                   flagged={flagged("length")} onChange={(v) => patchQueue({ length: v })}
                 />
               )}
               {attrs.category === "Unterteil" && (
                 <Field
-                  label="Bundhöhe" value={attrs.rise} options={RISES}
+                  label="Bundhöhe" value={attrs.rise} options={V("bundhoehen", RISES)}
                   flagged={flagged("rise")} onChange={(v) => patchQueue({ rise: v })}
                 />
               )}
               {attrs.category === "Schuhe" && (
                 <Field
-                  label="Gewicht" value={attrs.shoeWeight} options={SHOE_WEIGHT}
+                  label="Gewicht" value={attrs.shoeWeight} options={V("schuhgewichte", SHOE_WEIGHT)}
                   flagged={flagged("shoeWeight")} onChange={(v) => patchQueue({ shoeWeight: v })}
                 />
               )}
               {(attrs.category === "Oberteil" || attrs.category === "Jacke") && (
                 <Field
-                  label="Ärmel" value={attrs.sleeve} options={SLEEVES}
+                  label="Ärmel" value={attrs.sleeve} options={V("aermel", SLEEVES)}
                   flagged={flagged("sleeve")} onChange={(v) => patchQueue({ sleeve: v })}
                 />
               )}
               <Field
-                label="Material" value={attrs.material} options={MATERIALS}
+                label="Material" value={attrs.material} options={V("materialien", MATERIALS)}
                 flagged={flagged("material")} onChange={(v) => patchQueue({ material: v })}
               />
               <Field
-                label="Dicke" value={attrs.thickness} options={THICKNESS}
+                label="Dicke" value={attrs.thickness} options={V("dicken", THICKNESS)}
                 flagged={flagged("thickness")} onChange={(v) => patchQueue({ thickness: v })}
               />
               <Field
-                label="Oberfläche" value={attrs.texture} options={TEXTURES}
+                label="Oberfläche" value={attrs.texture} options={V("oberflaechen", TEXTURES)}
                 flagged={flagged("texture")} onChange={(v) => patchQueue({ texture: v })}
               />
               <Field
-                label="Muster" value={attrs.pattern} options={PATTERNS}
+                label="Muster" value={attrs.pattern} options={V("muster", PATTERNS)}
                 flagged={flagged("pattern")} onChange={(v) => patchQueue({ pattern: v })}
               />
               {attrs.pattern && attrs.pattern !== "uni" && (
                 <Field
-                  label="Mustergröße" value={attrs.patternScale} options={PATTERN_SCALE}
+                  label="Mustergröße" value={attrs.patternScale} options={V("musterGroessen", PATTERN_SCALE)}
                   flagged={flagged("patternScale")}
                   onChange={(v) => patchQueue({ patternScale: v })}
                 />
@@ -1320,42 +1511,42 @@ export default function App() {
 
             <div className="mt-5 grid grid-cols-2 gap-3">
               <Field
-                label="Kategorie" value={detail.category} options={CATEGORIES}
+                label="Kategorie" value={detail.category} options={V("kategorien", CATEGORIES)}
                 onChange={(v) => updateItem(detail.id, { category: v })}
               />
               {detail.category === "Accessoire" ? (
                 <Field
-                  label="Art" value={detail.subcategory} options={ACCESSORY_TYPES}
+                  label="Art" value={detail.subcategory} options={V("accessoires", ACCESSORY_TYPES)}
                   onChange={(v) => updateItem(detail.id, { subcategory: v })}
                 />
               ) : (
                 <Field
-                  label="Schnitt" value={detail.fit} options={FITS}
+                  label="Schnitt" value={detail.fit} options={V("schnitte", FITS)}
                   onChange={(v) => updateItem(detail.id, { fit: v })}
                 />
               )}
               {detail.category !== "Accessoire" && detail.category !== "Schuhe" && (
                 <Field
                   label="Länge" value={detail.length}
-                  options={detail.category === "Unterteil" ? BOTTOM_LEN : TOP_LEN}
+                  options={detail.category === "Unterteil" ? V("laengenUnten", BOTTOM_LEN) : V("laengenOben", TOP_LEN)}
                   onChange={(v) => updateItem(detail.id, { length: v })}
                 />
               )}
               {detail.category === "Unterteil" && (
                 <Field
-                  label="Bundhöhe" value={detail.rise} options={RISES}
+                  label="Bundhöhe" value={detail.rise} options={V("bundhoehen", RISES)}
                   onChange={(v) => updateItem(detail.id, { rise: v })}
                 />
               )}
               {detail.category === "Schuhe" && (
                 <Field
-                  label="Gewicht" value={detail.shoeWeight} options={SHOE_WEIGHT}
+                  label="Gewicht" value={detail.shoeWeight} options={V("schuhgewichte", SHOE_WEIGHT)}
                   onChange={(v) => updateItem(detail.id, { shoeWeight: v })}
                 />
               )}
               {(detail.category === "Oberteil" || detail.category === "Jacke") && (
                 <Field
-                  label="Ärmel" value={detail.sleeve} options={SLEEVES}
+                  label="Ärmel" value={detail.sleeve} options={V("aermel", SLEEVES)}
                   onChange={(v) => updateItem(detail.id, { sleeve: v })}
                 />
               )}
@@ -1365,24 +1556,24 @@ export default function App() {
                   die Mustergröße über den harten Ausschluss "zwei laute
                   Muster" entscheidet. */}
               <Field
-                label="Material" value={detail.material} options={MATERIALS}
+                label="Material" value={detail.material} options={V("materialien", MATERIALS)}
                 onChange={(v) => updateItem(detail.id, { material: v })}
               />
               <Field
-                label="Dicke" value={detail.thickness} options={THICKNESS}
+                label="Dicke" value={detail.thickness} options={V("dicken", THICKNESS)}
                 onChange={(v) => updateItem(detail.id, { thickness: v })}
               />
               <Field
-                label="Oberfläche" value={detail.texture} options={TEXTURES}
+                label="Oberfläche" value={detail.texture} options={V("oberflaechen", TEXTURES)}
                 onChange={(v) => updateItem(detail.id, { texture: v })}
               />
               <Field
-                label="Muster" value={detail.pattern} options={PATTERNS}
+                label="Muster" value={detail.pattern} options={V("muster", PATTERNS)}
                 onChange={(v) => updateItem(detail.id, { pattern: v })}
               />
               {detail.pattern && detail.pattern !== "uni" && (
                 <Field
-                  label="Mustergröße" value={detail.patternScale} options={PATTERN_SCALE}
+                  label="Mustergröße" value={detail.patternScale} options={V("musterGroessen", PATTERN_SCALE)}
                   onChange={(v) => updateItem(detail.id, { patternScale: v })}
                 />
               )}
@@ -1391,6 +1582,44 @@ export default function App() {
             {detail.materialSecondary && (
               <p style={{ color: C.faint }} className="mt-3 text-xs">
                 Zweitmaterial: {detail.materialSecondary}
+              </p>
+            )}
+
+            {/* Preis und Kaufdatum sind freiwillig. Ohne sie funktioniert
+                alles wie bisher; mit ihnen rechnet die Auswertung den
+                Preis pro Tragen aus. */}
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div>
+                <Label>Preis (€)</Label>
+                <input
+                  type="number" min="0" step="0.01" inputMode="decimal"
+                  value={detail.price ?? ""}
+                  placeholder="—"
+                  onChange={(e) =>
+                    updateItemLater(detail.id, {
+                      price: e.target.value === "" ? null : Number(e.target.value),
+                    })
+                  }
+                  style={{ background: "transparent", color: C.text, borderColor: C.line }}
+                  className="w-full border-b text-sm pb-1"
+                />
+              </div>
+              <div>
+                <Label>Gekauft am</Label>
+                <input
+                  type="date"
+                  value={(detail.boughtAt || "").slice(0, 10)}
+                  onChange={(e) =>
+                    updateItemLater(detail.id, { boughtAt: e.target.value || null })
+                  }
+                  style={{ background: "transparent", color: C.text, borderColor: C.line }}
+                  className="w-full border-b text-sm pb-1"
+                />
+              </div>
+            </div>
+            {detail.price != null && (detail.wearCount || 0) > 0 && (
+              <p style={{ color: C.faint }} className="mt-2 text-xs">
+                {(detail.price / detail.wearCount).toFixed(2)} € pro Tragen
               </p>
             )}
 
@@ -1449,13 +1678,28 @@ export default function App() {
 
             <div className="mt-5 flex items-center justify-between">
               <Label>{detail.wearCount || 0} mal getragen</Label>
-              <button
-                onClick={() => updateItem(detail.id, { paused: !detail.paused })}
-                style={{ color: detail.paused ? C.signal : C.dim, letterSpacing: "0.16em" }}
-                className="text-[10px] uppercase"
-              >
-                {detail.paused ? "in der Wäsche" : "verfügbar"}
-              </button>
+              {waescheTage(detail) > 0 ? (
+                <button
+                  onClick={() => wiederVerfuegbar(detail.id)}
+                  style={{ color: C.signal, letterSpacing: "0.16em" }}
+                  className="text-[10px] uppercase"
+                  title="Wäschefrist vorzeitig beenden"
+                >
+                  Wäsche · {waescheText(waescheTage(detail))} · freigeben
+                </button>
+              ) : (
+                <button
+                  onClick={() =>
+                    detail.paused
+                      ? wiederVerfuegbar(detail.id)
+                      : updateItem(detail.id, { paused: true })
+                  }
+                  style={{ color: detail.paused ? C.signal : C.dim, letterSpacing: "0.16em" }}
+                  className="text-[10px] uppercase"
+                >
+                  {detail.paused ? "pausiert · freigeben" : "verfügbar"}
+                </button>
+              )}
             </div>
 
             <div className="mt-6 flex gap-2 pb-3">

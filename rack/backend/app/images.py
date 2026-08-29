@@ -25,16 +25,19 @@ _session_lock = threading.Lock()
 
 
 def _rembg_session():
-    """u2net wird einmal geladen und dann wiederverwendet.
+    """Das Freistellungsmodell wird einmal geladen und wiederverwendet.
 
     Das Laden kostet auf dem N150 spuerbar Zeit, deshalb nicht pro Bild.
+    Welches Modell, steht in RACK_REMBG_MODEL; im Image liegt genau
+    dieses vor, ein anderer Wert wuerde beim ersten Foto nachladen.
     """
     global _session
     if _session is None:
         with _session_lock:
             if _session is None:
                 from rembg import new_session
-                _session = new_session("u2net")
+                log.info("Freistellungsmodell: %s", settings.rembg_model)
+                _session = new_session(settings.rembg_model)
     return _session
 
 
