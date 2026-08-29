@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/* Ersetzt den FONTS-Block des Prototypen. Die Schriften kommen jetzt
+   lokal aus /fonts, eingebunden in index.html. */
+input[type="range"] {
+  height: 2px;
+  background: #2f2f2f;
+  -webkit-appearance: none;
+  appearance: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ece8e2;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: #ece8e2;
+}
+select {
+  -webkit-appearance: none;
+  appearance: none;
+}
+*:focus-visible {
+  outline: 1px solid #ece8e2;
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* Sanftes Pulsieren, solange etwas laeuft. Nur ein Lebenszeichen, keine
+   Zeitangabe: die Dauer eines Modellaufrufs ist nicht vorhersagbar. */
+@keyframes rack-puls {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.rack-puls {
+  animation: rack-puls 1.6s ease-in-out infinite;
+}
+
+/* Auf dem iPhone im Vollbildmodus nicht unter die Systemleisten laufen. */
+body {
+  background: #121212;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}

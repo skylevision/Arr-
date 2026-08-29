@@ -36,7 +36,7 @@ A complete, production-ready Docker Compose stack for automated movie and TV man
 | **Readarr** | Book / AudioBook manager *(optional, profile `readarr`)* | 8787 |
 | **Bazarr** | Subtitle management | 6767 |
 | **Seerr** | Media request portal — supports Jellyfin, Plex, Emby | 5055 |
-| **Vaultwarden** | Self-hosted Bitwarden-compatible password manager *(optional, profile `vaultwarden`)* | 8082 |
+| **Vaultwarden** | Self-hosted Bitwarden-compatible password manager — public at `vault.mmaeurer.de` | 8082 |
 | **Threadfin** | IPTV proxy — Live TV for Jellyfin *(optional, profile `iptv`)* | 34400 |
 | **AdGuard Home** | Local DNS (service names like `jellyfin.home`) & network-wide ad blocker | 8081 (UI), 53 (DNS) |
 | **Jellyfin** | Media server | 8096 |
@@ -175,11 +175,11 @@ bash scripts/healthcheck.sh   # containers, APIs, indexer/client tests, hardlink
 
 ### 5. Optional services
 
-Vaultwarden, Threadfin, Lidarr and Readarr use
+Threadfin, Lidarr and Readarr use
 [Docker Compose profiles](https://docs.docker.com/compose/profiles/) and are **off by default**.
+(Vaultwarden used to be here too — it now runs permanently, see below.)
 
 ```bash
-docker compose --profile vaultwarden up -d vaultwarden
 docker compose --profile iptv        up -d threadfin
 docker compose --profile lidarr      up -d lidarr
 docker compose --profile readarr     up -d readarr
@@ -301,14 +301,24 @@ to it. Assign it per series: *Series → Edit → Quality Profile*.
 
 ### Vaultwarden
 
-1. Open Vaultwarden (`http://<ip>:8082`) → create your account
-2. Open the admin panel at `http://<ip>:8082/admin` (requires `VW_ADMIN_TOKEN` in `.env`)
-3. In the admin panel: disable signups once all accounts are created (`VW_SIGNUPS_ALLOWED=false`)
-4. **HTTPS for mobile clients** (required by Bitwarden apps):
-   ```bash
-   docker exec tailscale tailscale serve https:443 / http://localhost:8082
-   ```
-   This exposes Vaultwarden at `https://<hostname>.<tailnet>.ts.net` with a valid cert.
+Runs permanently (no profile) and is published through SWAG at
+**https://vault.mmaeurer.de** — the existing `*.mmaeurer.de` wildcard cert covers it.
+
+| Aspect | Setting |
+|---|---|
+| Registration | closed (`SIGNUPS_ALLOWED=false`) — new accounts by invitation only |
+| Admin panel | `/admin`, restricted to LAN + tailnet, `403` from the internet |
+| Admin token | Argon2id hash in `${APPDATA}/vaultwarden/admin_token`, read via `ADMIN_TOKEN_FILE` — **not** in `.env`, because `bootstrap/lib.sh` sources that file and would mangle the `$` |
+| Geo-blocking | deliberately **off** (unlike `tv.`/`seer.`) — a password manager has to work abroad |
+| Brute force | Vaultwarden rate limits + fail2ban jail `vaultwarden` reading `/vwlog/vaultwarden.log` in SWAG |
+| Internal DNS | AdGuard rewrite `vault.mmaeurer.de → 192.168.178.5`, so LAN clients skip hairpin NAT (which strips the LAN source IP and would break the `/admin` allow-list) |
+
+```bash
+bash scripts/vaultwarden-admin-token.sh   # set/rotate the admin password
+docker compose up -d vaultwarden
+```
+
+Then: admin panel → Users → Invite User, and finish registration at the vault URL.
 
 > See [VAULTWARDEN_SETUP.md](VAULTWARDEN_SETUP.md) for the full guide including client setup, 2FA, import, and backup.
 

@@ -452,6 +452,10 @@ services:
       - DOCKER_MODS=linuxserver/mods:swag-dbip
     volumes:
       - swag_data:/config
+      # Vaultwarden-Log read-only: der fail2ban im SWAG-Container liest daraus
+      # die fehlgeschlagenen Anmeldungen (Jail "vaultwarden" in jail.local).
+      # Direkter Bind statt named volume, weil hier bewusst nur gelesen wird.
+      - ${APPDATA}/vaultwarden:/vwlog:ro
     ports:
       - "${UNRAID_IP}:${SWAG_PORT_HTTPS:-443}:443/tcp"
       - "${UNRAID_IP}:${SWAG_PORT_HTTPS:-443}:443/udp"   # HTTP/3 (QUIC)
@@ -462,23 +466,48 @@ services:
       - proxynet
 
   # ==========================================================================
-  # VAULTWARDEN — deaktiviert (--profile vaultwarden), Einrichtung folgt später
-  # DOMAIN darf NICHT leer übergeben werden (Crash ab 1.35) — Default ist die
-  # lokale HTTP-URL; für Bitwarden-Clients später VW_DOMAIN auf HTTPS setzen.
+  # VAULTWARDEN — Passwortmanager, öffentlich über https://vault.mmaeurer.de
+  #
+  # Kein Profil mehr: läuft dauerhaft mit, sonst wäre der Passwortspeicher nach
+  # einem `docker compose up -d` ohne --profile plötzlich weg.
+  #
+  # ADMIN_TOKEN steht bewusst NICHT in der .env: es ist ein Argon2id-PHC-String
+  # voller `$`-Zeichen, und bootstrap/lib.sh liest die .env per `source` — dort
+  # würde `$argon2id` zu Leerstring und `$$` zur PID expandieren. Deshalb per
+  # ADMIN_TOKEN_FILE aus einer Datei, die nur root lesen kann (chmod 600).
+  # Erzeugen: docker run --rm -i alpine … argon2 (siehe VAULTWARDEN_SETUP.md).
+  #
+  # DOMAIN darf NICHT leer übergeben werden (Crash ab 1.35) und muss exakt der
+  # öffentlichen URL entsprechen — sonst brechen WebAuthn und die Push-Kanäle.
   # ==========================================================================
   vaultwarden:
     image: vaultwarden/server:1.37.1
     container_name: vaultwarden
     restart: unless-stopped
-    profiles:
-      - vaultwarden
     environment:
       - TZ=${TZ:-Europe/Berlin}
       - WEBSOCKET_ENABLED=true
-      - SIGNUPS_ALLOWED=${VW_SIGNUPS_ALLOWED:-true}
-      - ADMIN_TOKEN=${VW_ADMIN_TOKEN:-}
+      # Registrierung zu: der eigene Account wird per Einladung im Admin-Panel
+      # angelegt. Eingeladene dürfen sich trotz SIGNUPS_ALLOWED=false anmelden.
+      - SIGNUPS_ALLOWED=${VW_SIGNUPS_ALLOWED:-false}
+      - INVITATIONS_ALLOWED=${VW_INVITATIONS_ALLOWED:-true}
+      - ADMIN_TOKEN_FILE=/data/admin_token
       - DOMAIN=${VW_DOMAIN:-http://${UNRAID_IP:-192.168.1.100}:${VAULTWARDEN_PORT:-8082}}
+      # Kein Passwort-Hinweis nach außen — sonst verrät die Anmeldemaske einem
+      # Fremden den selbstgeschriebenen Hinweis zum Master-Passwort.
+      - SHOW_PASSWORD_HINT=false
+      # Brute-Force-Bremse direkt in Vaultwarden (greift vor fail2ban).
+      - LOGIN_RATELIMIT_SECONDS=${VW_LOGIN_RATELIMIT_SECONDS:-60}
+      - LOGIN_RATELIMIT_MAX_BURST=${VW_LOGIN_RATELIMIT_MAX_BURST:-10}
+      - ADMIN_RATELIMIT_SECONDS=${VW_ADMIN_RATELIMIT_SECONDS:-300}
+      - ADMIN_RATELIMIT_MAX_BURST=${VW_ADMIN_RATELIMIT_MAX_BURST:-3}
+      # Logdatei, damit fail2ban im SWAG-Container die Fehlversuche mitlesen
+      # kann (dort read-only als /vwlog eingehängt).
+      - LOG_FILE=/data/vaultwarden.log
       - LOG_LEVEL=warn
+      # Echte Client-IP hinter dem Reverse Proxy — ohne das sieht Vaultwarden
+      # (und damit fail2ban) nur die Container-IP von SWAG.
+      - IP_HEADER=X-Forwarded-For
     ports:
       - "${VAULTWARDEN_PORT:-8082}:80"
     volumes:
@@ -488,6 +517,7 @@ services:
       - ${DOCKER_DNS_FALLBACK:-9.9.9.9}
     networks:
       - arr_net
+      - proxynet   # für SWAG (vault.mmaeurer.de)
     healthcheck:
       test: ["CMD", "/healthcheck.sh"]
       interval: 30s

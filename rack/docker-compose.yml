@@ -1,0 +1,77 @@
+# ============================================================
+# rack — Kleiderschrank mit Regel-Engine und Outfitvorschlägen
+# ============================================================
+# Eigenes Compose-Projekt, bewusst getrennt vom arr-stack:
+# der Medien-Stack soll sich nicht mitbewegen, wenn hier
+# etwas neu gebaut wird.
+#
+#   docker compose up -d --build
+#
+# Erreichbar ausschließlich über Tailscale. Der Port ist an
+# 127.0.0.1 gebunden, `tailscale serve` reicht ihn nach außen
+# ins Tailnet weiter — im LAN ist nichts offen.
+# ============================================================
+
+name: rack
+
+services:
+  rack:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rack:local
+    container_name: rack
+    restart: unless-stopped
+
+    # Nur der Host selbst. Tailscale läuft im Host-Netz und kommt
+    # darüber heran; aus dem LAN ist der Port nicht erreichbar.
+    ports:
+      - "127.0.0.1:${RACK_PORT:-8099}:8099"
+
+    environment:
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
+      - UMASK=${UMASK:-022}
+      - TZ=${TZ:-Europe/Berlin}
+      # Schlüssel und Token kommen aus der .env, nie aus dieser Datei.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - RACK_TOKEN=${RACK_TOKEN:-}
+      - RACK_MODEL_VISION=${RACK_MODEL_VISION:-claude-sonnet-5}
+      - RACK_MODEL_CURATE=${RACK_MODEL_CURATE:-claude-sonnet-5}
+      - RACK_TREND_MAX_AGE_DAYS=${RACK_TREND_MAX_AGE_DAYS:-30}
+      # Ablage-/Anzeigegroesse. Getrennt von der Fassung, die an die
+      # Vision-API geht: Claude Sonnet 5 verarbeitet bis 2576 Pixel auf
+      # der langen Kante, und Material erkennt man nur mit genug
+      # Aufloesung — Cordrippen sind bei 1000 Pixel nicht mehr da.
+      - RACK_MAX_IMAGE_DIM=${RACK_MAX_IMAGE_DIM:-1400}
+      - RACK_MODEL_IMAGE_DIM=${RACK_MODEL_IMAGE_DIM:-2000}
+      - RACK_CUTOUT=${RACK_CUTOUT:-1}
+      - RACK_REMBG_MODEL=${RACK_REMBG_MODEL:-isnet-general-use}
+      # Getragenes geht automatisch fuer so viele Tage in die Waesche.
+      - RACK_LAUNDRY_DAYS=${RACK_LAUNDRY_DAYS:-3}
+
+    volumes:
+      - rack_db:/data/db
+      - rack_images:/data/images
+      - rack_models:/models
+
+    # Logs nach stdout, begrenzt, damit nichts den Cache vollschreibt.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  rack_db:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${APPDATA:-/mnt/user/appdata}/rack/db" }
+  rack_images:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${APPDATA:-/mnt/user/appdata}/rack/images" }
+  rack_models:
+    driver: local
+    driver_opts: { type: none, o: bind, device: "${APPDATA:-/mnt/user/appdata}/rack/models" }

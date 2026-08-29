@@ -1,0 +1,68 @@
+name: Tests
+
+# Die Regel-Engine ist der Teil, den man beim Anpassen am leichtesten
+# kaputt macht, und ein Fehler faellt dort nicht auf: die App laeuft
+# weiter, sie schlaegt nur schlechtere Outfits vor. Der Docker-Build auf
+# dem Server prueft das zwar auch, aber erst beim Deployen — hier faellt
+# es schon beim Push auf.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  engine:
+    name: Regel-Engine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Nur pytest: die Engine-Tests brauchen weder FastAPI noch rembg,
+      # und die schwergewichtigen Abhaengigkeiten (onnxruntime, Pillow)
+      # wuerden den Lauf ohne Gegenwert um Minuten verlaengern.
+      - name: pytest installieren
+        run: pip install pytest==9.1.1
+
+      - name: Engine-Tests
+        working-directory: rack/backend
+        run: python -m pytest -q
+
+  shell:
+    name: Shell-Skripte
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax aller Skripte pruefen
+        run: |
+          fehler=0
+          while IFS= read -r f; do
+            bash -n "$f" || { echo "FEHLER in $f"; fehler=1; }
+          done < <(find . -name '*.sh' -not -path './.git/*')
+          exit $fehler
+
+  compose:
+    name: Compose-Dateien
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Die Dateien greifen auf Variablen aus einer .env zu, die es im
+      # Repository nicht gibt. .env.example reicht fuer die Pruefung der
+      # Struktur; fehlende Werte sind dabei egal, Syntaxfehler nicht.
+      - name: arr-stack
+        run: |
+          cp .env.example .env
+          docker compose config -q
+
+      - name: rack
+        working-directory: rack
+        run: |
+          cp .env.example .env
+          docker compose config -q

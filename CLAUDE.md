@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Docker Compose stack ("arr-stack") for automated media management on an **Unraid** server: Tailscale, SABnzbd, Prowlarr, Radarr, Sonarr, Bazarr, Seerr, Jellyfin, Homepage, and AdGuard Home (local DNS: `<service>.home` rewrites + ad blocking, Fritz!Box forwards to it as upstream with a public-DNS fallback) active; Lidarr/Readarr, Vaultwarden, and Threadfin behind compose profiles (off by default). There is no application code, build, or test suite — the deliverables are `docker-compose.yml`, `bootstrap.sh` + `bootstrap/NN-*.sh` (idempotent API configuration), `recyclarr/recyclarr.yml`, `setup.sh`, `.env.example`, `scripts/`, and the Markdown setup guides. The stack is deployed on the Unraid host, not on this Windows machine.
+A Docker Compose stack ("arr-stack") for automated media management on an **Unraid** server: Tailscale, SABnzbd, Prowlarr, Radarr, Sonarr, Bazarr, Seerr, Jellyfin, Homepage, AdGuard Home (local DNS: `<service>.home` rewrites + ad blocking, Fritz!Box forwards to it as upstream with a public-DNS fallback), SWAG (reverse proxy publishing `tv.`/`seer.`/`vault.mmaeurer.de`) and Vaultwarden active; Lidarr/Readarr and Threadfin behind compose profiles (off by default). There is no application code, build, or test suite — the deliverables are `docker-compose.yml`, `bootstrap.sh` + `bootstrap/NN-*.sh` (idempotent API configuration), `recyclarr/recyclarr.yml`, `setup.sh`, `.env.example`, `scripts/`, and the Markdown setup guides. The stack is deployed on the Unraid host, not on this Windows machine.
 
 ## Commands
 
@@ -14,8 +14,10 @@ bash bootstrap.sh           # one-command bootstrap: dirs, network, compose up, 
 bash scripts/healthcheck.sh # report: containers, APIs, indexer/client tests, hardlink test
 bash bootstrap/03-prowlarr.sh   # every NN-*.sh is idempotent and re-runnable on its own
 
-docker compose --profile vaultwarden up -d vaultwarden   # optional services are behind profiles
-docker compose --profile adguard up -d adguardhome       # (also: iptv, lidarr, readarr)
+docker compose --profile iptv up -d threadfin            # optional services are behind profiles
+docker compose --profile adguard up -d adguardhome       # (also: lidarr, readarr)
+
+bash scripts/vaultwarden-admin-token.sh   # Vaultwarden-Admin-Passwort setzen (Argon2id)
 
 docker compose config -q    # validate compose file after edits
 ```
@@ -30,6 +32,8 @@ API bootstrap conventions: scripts source `bootstrap/lib.sh` (env loading from `
 - **Volumes**: every named volume is a bind mount (`driver_opts: type: none, o: bind`) onto `${APPDATA}/<service>`. Adding a service means adding a volume block, a directory entry in `setup.sh`'s `APPDATA_DIRS`, and usually a Homepage entry in the `services.yaml` heredoc in `setup.sh`.
 - **Hardlink convention (critical)**: SABnzbd, Radarr and Sonarr all mount the whole `${DATA}` share as `/data` so downloads (`/data/downloads`) and media (`/data/media`) share one filesystem, imports use hardlinks instead of copies, and no remote path mappings are needed. Don't split these into separate mounts. Bazarr deliberately mounts only `${DATA}/media`; Jellyfin mounts it read-only.
 - **`x-common` anchor** provides `restart`, PUID/PGID, and TZ. Note: an explicit `environment:` block on a service **replaces** the anchor's environment entirely (YAML merge, not deep merge), so TZ/PUID/PGID must be repeated there (see jellyfin, homepage). Seerr and Vaultwarden intentionally skip PUID/PGID (they don't use the LinuxServer user model).
+- **Secrets with `$` must not go into `.env`**: `bootstrap/lib.sh` loads it via `source`, so a value like an Argon2 PHC string would be mangled (`$argon2id` → empty, `$$` → PID). Vaultwarden's admin token therefore lives in `${APPDATA}/vaultwarden/admin_token` and is read via `ADMIN_TOKEN_FILE`.
+- **Public exposure via SWAG**: a service reachable from the internet needs (1) membership in `proxynet`, (2) a `*.subdomain.conf` in `${APPDATA}/swag/nginx/proxy-confs/` (these live on the host, not in the repo), and (3) usually an AdGuard rewrite to the LAN IP — without it, LAN clients reach the service through hairpin NAT, which replaces the source IP and breaks any nginx `allow`-list.
 - **Ports** are all `.env`-configurable with defaults chosen to avoid collisions on Unraid: SABnzbd published on 8090 (8080 is common on Unraid), AdGuard UI on 8081, AdGuard setup wizard on 3001 (Homepage owns 3000), AdGuard DNS bound to `${UNRAID_IP}:53` to avoid the host resolver on 127.0.0.1:53. Unraid defaults PUID=99/PGID=100.
 - **Inter-service config** uses Docker hostnames (`http://radarr:7878`, `http://sabnzbd:8080` with the *container* port), which only resolve inside `arr_net`; browser access uses `http://<unraid-ip>:<published-port>`.
 
