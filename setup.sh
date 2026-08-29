@@ -200,6 +200,12 @@ write_if_missing "${HP_CONFIG}/services.yaml" "---
           url: http://seerr:5055
           key: # paste your Seerr API key here
 
+- Tools:
+    - Vaultwarden:
+        icon: bitwarden.png
+        href: https://vault.mmaeurer.de
+        description: Passwortmanager (Bitwarden-kompatibel)
+
 - Live TV:
     - Threadfin:
         icon: mdi-television-play
@@ -329,7 +335,7 @@ printf "    %-20s http://<unraid-ip>:%s\n" "Radarr"        "${RADARR_PORT:-7878}
 printf "    %-20s http://<unraid-ip>:%s\n" "Sonarr"        "${SONARR_PORT:-8989}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Bazarr"        "${BAZARR_PORT:-6767}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Seerr"          "${SEERR_PORT:-5055}"
-printf "    %-20s http://<unraid-ip>:%s\n" "Vaultwarden"   "${VAULTWARDEN_PORT:-8082}"
+printf "    %-20s %s\n" "Vaultwarden"    "https://vault.mmaeurer.de (lokal: http://<unraid-ip>:${VAULTWARDEN_PORT:-8082})"
 printf "    %-20s http://<unraid-ip>:%s\n" "Threadfin"      "${THREADFIN_PORT:-34400}"
 printf "    %-20s http://<unraid-ip>:%s\n" "AdGuard Home"  "${ADGUARD_WEBUI_PORT:-8081}"
 printf "    %-20s http://<unraid-ip>:%s\n" "Jellyfin"      "${JELLYFIN_PORT_HTTP:-8096}"
