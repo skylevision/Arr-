@@ -99,6 +99,8 @@ export default function App() {
   // Materialbewertung ein — ohne sie zählt nur die Temperatur, und dann
   // steht man mit Wildleder im Regen.
   const [wetter, setWetter] = useState({ regen: 0, wind: 0 });
+  // Was zuletzt geholt wurde, für die Anzeige unter der Temperatur.
+  const [wetterlage, setWetterlage] = useState(null);
   const [waschgaenge, setWaschgaenge] = useState(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -186,6 +188,26 @@ export default function App() {
     api.stats().then(setStats).catch((err) => fail(err, "Die Bilanz war nicht abrufbar."));
     api.aussortieren().then(setAusmisten).catch(() => {});
   }, [view, items, fail]);
+
+  // Wetter beim Start holen, aber nur wenn der Standort schon freigegeben
+  // ist. Sonst käme die Erlaubnisabfrage ungefragt beim Öffnen — die
+  // gehört an den Knopf, den man selbst gedrückt hat.
+  //
+  // Der Zweig ohne Permissions-API (ältere Safari-Fassungen) fragt gar
+  // nicht: lieber einmal von Hand tippen als eine Abfrage aus dem Nichts.
+  useEffect(() => {
+    if (!navigator.permissions?.query || !navigator.geolocation) return;
+    let aktuell = true;
+    navigator.permissions
+      .query({ name: "geolocation" })
+      .then((p) => {
+        if (aktuell && p.state === "granted") holeWetter({ still: true });
+      })
+      .catch(() => {});
+    return () => { aktuell = false; };
+    // Nur einmal beim Start.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Das Vokabular ändert sich nur mit einer neuen Fassung des Servers,
   // deshalb einmal beim Start und bewusst ohne Fehlerbehandlung: schlägt
@@ -388,39 +410,42 @@ export default function App() {
     });
   }
 
-  async function useWeather() {
+  // still: der Aufruf beim Start soll weder einen Fortschritt anzeigen
+  // noch mit einer Fehlermeldung dazwischenfahren, wenn gerade kein
+  // Standort zu bekommen ist.
+  async function holeWetter({ still = false } = {}) {
     if (!navigator.geolocation) {
-      setError("Dieses Gerät gibt den Standort nicht heraus. Stell die Temperatur von Hand ein.");
+      if (!still) {
+        setError("Dieses Gerät gibt den Standort nicht heraus. "
+          + "Stell die Temperatur von Hand ein.");
+      }
       return;
     }
-    setBusy("Hole das Wetter");
+    if (!still) setBusy("Hole das Wetter");
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         try {
+          // Zwei Nachkommastellen sind rund ein Kilometer genau — fürs
+          // Wetter reicht das, und der Server-Zwischenspeicher trifft
+          // dadurch häufiger.
           const w = await api.weather(
             pos.coords.latitude.toFixed(2),
             pos.coords.longitude.toFixed(2)
           );
           if (typeof w.temp === "number") setTemp(Math.round(w.temp));
           setWetter({ regen: w.regen || 0, wind: w.wind || 0 });
-          const zusatz = [];
-          if (w.regen >= 0.2) zusatz.push(`${w.regen} mm Regen`);
-          if (w.wind >= 20) zusatz.push(`${Math.round(w.wind)} km/h Wind`);
-          setNotice(
-            `${Math.round(w.temp)} Grad${
-              typeof w.gefuehlt === "number" ? `, gefühlt ${Math.round(w.gefuehlt)}` : ""
-            }${zusatz.length ? `, ${zusatz.join(", ")}` : ""}${
-              w.gecacht ? " (gespeichert)" : ""
-            }`
-          );
+          setWetterlage({ ...w, geholt: Date.now() });
         } catch (err) {
-          fail(err, "Das Wetter war nicht abrufbar.");
+          if (!still) fail(err, "Das Wetter war nicht abrufbar.");
         }
-        setBusy("");
+        if (!still) setBusy("");
       },
       () => {
-        setBusy("");
-        setError("Der Standort wurde nicht freigegeben. Stell die Temperatur von Hand ein.");
+        if (!still) {
+          setBusy("");
+          setError("Der Standort wurde nicht freigegeben. "
+            + "Stell die Temperatur von Hand ein.");
+        }
       },
       { timeout: 10000, maximumAge: 600000 }
     );
@@ -957,7 +982,7 @@ export default function App() {
             <span style={{ fontFamily: DISPLAY, fontSize: 54, lineHeight: 1 }}>{temp}</span>
             <Label>Grad draußen</Label>
             <button
-              onClick={useWeather}
+              onClick={() => holeWetter()}
               style={{ color: C.dim, letterSpacing: "0.16em" }}
               className="ml-auto text-[10px] uppercase"
             >
@@ -969,6 +994,37 @@ export default function App() {
             onChange={(e) => setTemp(Number(e.target.value))}
             className="w-full mt-2" style={{ accentColor: C.text }}
           />
+
+          {/* Was das Wetter beigetragen hat, bleibt stehen. Vorher blitzte
+              es nur kurz als Meldung auf, und Regen und Wind tauchten gar
+              nicht auf, wenn sie unter der Schwelle lagen — dann sah es
+              aus, als zähle nur die Temperatur. */}
+          {wetterlage && (
+            <div className="mt-2">
+              <p style={{ color: C.faint }} className="text-xs leading-relaxed">
+                An deinem Standort
+                {typeof wetterlage.gefuehlt === "number"
+                  ? `, gefühlt ${Math.round(wetterlage.gefuehlt)} Grad` : ""}
+                {" · "}
+                {wetterlage.regen >= 0.2
+                  ? `${wetterlage.regen} mm Regen`
+                  : "kein Regen"}
+                {" · "}
+                {Math.round(wetterlage.wind)} km/h Wind
+                {typeof wetterlage.min === "number" && typeof wetterlage.max === "number"
+                  ? ` · heute ${Math.round(wetterlage.min)} bis ${Math.round(wetterlage.max)} Grad`
+                  : ""}
+                {wetterlage.gecacht ? " (gespeichert)" : ""}
+              </p>
+              {(wetterlage.regen >= 2 || wetterlage.wind >= 20) && (
+                <p style={{ color: C.signal }} className="mt-1 text-xs leading-relaxed">
+                  {wetterlage.regen >= 2
+                    ? "Wildleder, Satin, Seide und Leinen werden bei dem Regen abgewertet."
+                    : "Bei dem Wind werden Mesh, Leinen und Viskose abgewertet."}
+                </p>
+              )}
+            </div>
+          )}
 
           {anchor && (
             <div className="mt-4 flex items-center justify-between">
