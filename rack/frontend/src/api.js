@@ -33,6 +33,10 @@ async function call(path, { method = "GET", body, form } = {}) {
   const headers = {};
   const t = token();
   if (t) headers["X-Rack-Token"] = t;
+  // Aktive Person. Steht sie nicht im Speicher, entscheidet der Server
+  // (Person 1) — fuer den Einzelnutzer aendert sich damit nichts.
+  const p = person();
+  if (p && p !== 1) headers["X-Rack-Person"] = String(p);
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
   let res;
@@ -73,6 +77,9 @@ export const api = {
   },
 
   vocab: () => call("/vocab"),
+  personen: () => call("/personen"),
+  personAnlegen: (name) => call("/personen", { method: "POST", body: { name } }),
+  personLoeschen: (id) => call(`/personen/${id}`, { method: "DELETE" }),
   stats: () => call("/stats"),
   items: () => call("/items"),
   wiederVerfuegbar: (id) => call(`/items/${id}/verfuegbar`, { method: "POST" }),
@@ -90,8 +97,9 @@ export const api = {
   planLoeschen: (datum) => call(`/plan/${datum}`, { method: "DELETE" }),
 
   packliste: (payload) => call("/packliste", { method: "POST", body: payload }),
-  diagnose: (id, anlass, temp) =>
-    call(`/items/${id}/diagnose?anlass=${encodeURIComponent(anlass)}&temp=${temp}`),
+  diagnose: (id, anlass, temp, wetter = {}) =>
+    call(`/items/${id}/diagnose?anlass=${encodeURIComponent(anlass)}&temp=${temp}`
+      + `&regen=${wetter.regen || 0}&wind=${wetter.wind || 0}`),
   waschgaenge: () => call("/waschgaenge"),
   wiederholung: (payload) => call("/wiederholung", { method: "POST", body: payload }),
   etikettHochladen: (id, file) => {
@@ -129,6 +137,26 @@ export const api = {
 
 /* Bild-URL eines Teils. Der Server setzt einen langen Cache-Header,
    deshalb reicht die schlichte Adresse ohne Zeitstempel. */
+/* Aktive Person, im Browser gemerkt. */
+const PERSON_KEY = "rack_person";
+
+export function person() {
+  try {
+    return Number(localStorage.getItem(PERSON_KEY)) || 1;
+  } catch {
+    return 1;
+  }
+}
+
+export function setPerson(id) {
+  try {
+    if (id && Number(id) !== 1) localStorage.setItem(PERSON_KEY, String(id));
+    else localStorage.removeItem(PERSON_KEY);
+  } catch {
+    /* Privater Modus: dann bleibt es bei Person 1. */
+  }
+}
+
 export function etikettUrl(id) {
   const t = token();
   return `/api/items/${id}/etikett${t ? `?token=${encodeURIComponent(t)}` : ""}`;

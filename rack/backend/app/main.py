@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import secrets
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
@@ -73,6 +72,27 @@ async def token_guard(request: Request, call_next):
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     return response
+
+
+@app.middleware("http")
+async def person_setzen(request: Request, call_next):
+    """Aktive Person aus Kopfzeile oder Parameter in den Anfragekontext.
+
+    Eine Stelle statt zwanzig: die Abfragen in db.py greifen auf die
+    ContextVar zurueck, wenn ihnen keine Person uebergeben wird. Eine
+    vergessene Aufrufstelle vermischt so keine Daten, sie nimmt schlicht
+    die aktive Person.
+
+    ContextVars sind pro Task isoliert, gleichzeitige Anfragen kommen
+    sich also nicht in die Quere.
+    """
+    roh = (request.headers.get("x-rack-person")
+           or request.query_params.get("person") or "")
+    try:
+        db.setze_person(int(roh) if roh else db.PERSON_DEFAULT)
+    except (TypeError, ValueError):
+        db.setze_person(db.PERSON_DEFAULT)
+    return await call_next(request)
 
 
 app.include_router(router)

@@ -373,6 +373,27 @@ Frei wählbar statt aus einer Liste, weil feste Kategorien nie ganz passen — a
 wiederkehrende Kritik an solchen Apps. Gespeichert wird eine Kommaliste, kleingeschrieben
 und ohne Doppelte, damit die Suche zuverlässig trifft.
 
+#### Mehrere Personen
+
+Jede Person hat ihren eigenen Schrank, ihr eigenes Protokoll, ihre eigene Planung und ihr
+eigenes Profil. Die aktive Person kommt als Kopfzeile `X-Rack-Person` oder als
+`?person=`; ohne Angabe ist es Person 1 — für den Einzelnutzer ändert sich damit nichts.
+
+Umgesetzt über eine **ContextVar**, die eine Middleware pro Anfrage setzt. Die Abfragen in
+`db.py` greifen darauf zurück, wenn ihnen keine Person übergeben wird. Der Alternativweg
+— `person_id` an zwanzig Aufrufstellen durchreichen — war die schlechtere Wahl: eine
+vergessene Stelle hätte Daten zwischen Personen vermischt, ohne dass etwas kaputtgeht.
+ContextVars sind pro Task isoliert, gleichzeitige Anfragen kommen sich nicht ins Gehege.
+
+Zwei Migrationen bauen dafür Tabellen neu auf, weil SQLite weder Constraints noch
+Primärschlüssel nachträglich ändern kann: `profile` verliert das `CHECK (id = 1)`,
+`planned_outfits` bekommt `PRIMARY KEY (person_id, plan_date)` — sonst hätten zwei
+Personen, die denselben Tag planen, sich gegenseitig überschrieben.
+
+**Person 1 lässt sich nicht löschen**: sie trägt den Bestand, der vor der Umstellung
+angelegt wurde. Und sie wird beim Start angelegt, falls sie fehlt — sonst bekäme die erste
+*hinzugefügte* Person die 1 und ihre Sachen lägen im Altbestand.
+
 #### JavaScript-Semantik
 
 An drei Stellen musste die JavaScript-Semantik ausdrücklich nachgebaut werden, weil

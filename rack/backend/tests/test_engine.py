@@ -835,3 +835,10 @@ def test_ohne_wetterangabe_bleibt_alles_wie_zuvor():
     bekommen exakt das alte Verhalten."""
     parts = [item(material="Wildleder")]
     assert e.s_material(parts, 16) == e.s_material(parts, 16, regen=0, wind=0)
+
+
+def test_packliste_nimmt_null_tage_als_angabe_ernst():
+    """Regressionstest: die API bildete `payload.get("tage") or 5` — eine
+    ausdrueckliche 0 galt damit als fehlende Angabe und wurde stillschweigend
+    zu fuenf Tagen. pack_list klemmt sie richtigerweise auf eins."""
+    assert e.pack_list(reise_schrank(), ctx(temp=16), tage=0)["tage"] == 1

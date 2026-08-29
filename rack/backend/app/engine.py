@@ -917,13 +917,19 @@ def diagnose(items: list[Item], item_id: str, ctx: dict,
 
     basen: list[list[Item]] = [[t, b] for t in tops for b in bottoms]
     basen += [[d] for d in dresses]
+    ist_acc = is_acc(teil)
     for base in basen:
         if not any(p.get("id") == item_id for p in base) \
-                and teil.get("category") not in ("Schuhe", "Jacke", "Accessoire"):
+                and not ist_acc and teil.get("category") not in ("Schuhe", "Jacke"):
             continue
         for sh in shoes:
             for ou in (outers if (need_outer and outers) else [None]):
-                parts = [*base, sh, ou] if ou else [*base, sh]
+                kern = [*base, sh, ou] if ou else [*base, sh]
+                # Accessoires kommen in build() erst obendrauf, wenn sie
+                # die Bewertung verbessern. Fuer die Diagnose haengen wir
+                # sie an jede Kombination an — sonst meldete ein Guertel
+                # "0 von 0 Kombinationen", was stimmte, aber nichts erklaerte.
+                parts = [*kern, teil] if ist_acc else kern
                 if not any(p.get("id") == item_id for p in parts):
                     continue
                 sammle(parts)
@@ -937,6 +943,7 @@ def diagnose(items: list[Item], item_id: str, ctx: dict,
     return {
         "gefunden": True,
         "name": teil.get("name"),
+        "accessoire": ist_acc,
         "sperre": sperre,
         "kombinationen": kombis,
         "zulaessig": zulaessig,
@@ -947,6 +954,64 @@ def diagnose(items: list[Item], item_id: str, ctx: dict,
         "schwaechste": sorted(mittel.items(), key=lambda kv: kv[1])[:3],
         "mittelwerte": mittel,
     }
+
+
+def abhilfe(items: list[Item], item_id: str, katalog: list[Item], ctx: dict,
+            now_ms: float | None = None) -> list[dict]:
+    """Was wuerde genau diesem Teil helfen?
+
+    Die Lueckenanalyse fragt, was dem Schrank insgesamt fehlt. Diese
+    Funktion fragt enger: welches Kandidatenteil schaltet die meisten
+    neuen Kombinationen **mit diesem einen Stueck** frei? Das ist der
+    Unterschied zwischen "dir fehlt ein flacher Sneaker" und "ein
+    flacher Sneaker macht deine Jogginghose brauchbar".
+
+    Gemessen wird wie bei analyse_gaps: einmal ohne und einmal mit dem
+    Kandidaten bauen und die Differenz nehmen — nur eben ausschliesslich
+    auf den Kombinationen, die das fragliche Teil enthalten.
+    """
+    teil = next((i for i in items if i.get("id") == item_id), None)
+    if teil is None:
+        return []
+
+    kandidat_frei = dict(teil)
+    kandidat_frei["paused"] = False
+    kandidat_frei["archived"] = False
+    kandidat_frei["laundryUntil"] = None
+    basis = [kandidat_frei, *[i for i in items
+                              if i.get("id") != item_id and is_available(i, now_ms)]]
+
+    def treffer(schrank: list[Item]) -> tuple[int, float]:
+        gut, beste = 0, 0.0
+        for r in build(schrank, ctx, 0, now_ms):
+            if not any(p.get("id") == item_id for p in r["parts"]):
+                continue
+            gut += 1
+            beste = max(beste, r["score"]["total"])
+        return gut, beste
+
+    vorher, beste_vorher = treffer(basis)
+
+    out: list[dict] = []
+    for n, kandidat in enumerate(katalog):
+        probe = dict(kandidat)
+        probe["id"] = f"probe_{n}"
+        probe.update(derive(probe))
+        nachher, beste_nachher = treffer([*basis, probe])
+        gewinn = nachher - vorher
+        if gewinn <= 0 and beste_nachher <= beste_vorher + 0.001:
+            continue
+        out.append({
+            "name": kandidat.get("name"),
+            "kategorie": kandidat.get("category"),
+            "preisklasse": kandidat.get("preisklasse"),
+            "neueOutfits": gewinn,
+            "bestePunkteVorher": round(beste_vorher * 100),
+            "bestePunkteNachher": round(beste_nachher * 100),
+        })
+
+    out.sort(key=lambda x: (-x["neueOutfits"], -x["bestePunkteNachher"]))
+    return out[:5]
 
 
 # ── Packliste ───────────────────────────────────────────────────────────

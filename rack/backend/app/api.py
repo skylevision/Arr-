@@ -23,7 +23,7 @@ from . import engine as E
 from . import prompts as P
 from .config import settings
 from .curation import entbehrliche_accessoires
-from .gaps import analyse_gaps
+from .gaps import analyse_gaps, catalog_for
 
 log = logging.getLogger("rack.api")
 router = APIRouter(prefix="/api")
@@ -79,16 +79,59 @@ def ai_test() -> dict[str, Any]:
     return ai.ping()
 
 
+# ── Personen ────────────────────────────────────────────────────────────
+#
+# Die aktive Person kommt als Kopfzeile X-Rack-Person oder als Parameter
+# ?person=. Ohne Angabe ist es Person 1 — fuer den Einzelnutzer aendert
+# sich damit nichts.
+
+def person_id(request: Request) -> int:
+    roh = request.headers.get("X-Rack-Person") or request.query_params.get("person")
+    try:
+        wert = int(roh) if roh else db.PERSON_DEFAULT
+    except (TypeError, ValueError):
+        return db.PERSON_DEFAULT
+    return wert if wert > 0 else db.PERSON_DEFAULT
+
+
+@router.get("/personen")
+def personen() -> list[dict[str, Any]]:
+    return db.list_persons()
+
+
+@router.post("/personen")
+def person_anlegen(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    name = (payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "Die Person braucht einen Namen.")
+    return db.add_person(name)
+
+
+@router.delete("/personen/{pid}")
+def person_loeschen(pid: int) -> dict[str, Any]:
+    if pid == db.PERSON_DEFAULT:
+        raise HTTPException(400,
+                            "Die erste Person lässt sich nicht löschen — sie trägt "
+                            "den Bestand, der vor der Umstellung angelegt wurde.")
+    weg, bilder = db.delete_person(pid)
+    if not weg:
+        raise HTTPException(404, "Person nicht gefunden.")
+    for pfad in bilder:
+        images.delete(pfad)
+    return {"geloescht": pid, "bilder": len(bilder)}
+
+
 # ── Profil ──────────────────────────────────────────────────────────────
 
 @router.get("/profile")
-def read_profile() -> dict[str, Any]:
-    return db.get_profile()
+def read_profile(request: Request) -> dict[str, Any]:
+    return db.get_profile(person_id(request))
 
 
 @router.put("/profile")
-def write_profile(profile: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    return db.save_profile(profile)
+def write_profile(request: Request,
+                  profile: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    return db.save_profile(profile, person_id(request))
 
 
 @router.post("/body-analysis")
@@ -404,8 +447,8 @@ async def ingest_events(job_id: str) -> StreamingResponse:
 # ── Teile ───────────────────────────────────────────────────────────────
 
 @router.get("/items")
-def list_items() -> list[dict[str, Any]]:
-    return db.list_items()
+def list_items(request: Request) -> list[dict[str, Any]]:
+    return db.list_items(person_id(request))
 
 
 @router.post("/items")
@@ -486,8 +529,9 @@ def remove_item(item_id: str) -> dict[str, Any]:
     current = db.get_item(item_id)
     if not current:
         raise HTTPException(404, "Teil nicht gefunden.")
-    if current.get("imagePath"):
-        images.delete(current["imagePath"])
+    for feld in ("imagePath", "labelPath"):
+        if current.get(feld):
+            images.delete(current[feld])
     db.delete_item(item_id)
     return {"geloescht": item_id}
 
@@ -779,11 +823,20 @@ def worn_log(limit: int = Query(200, ge=1, le=1000)) -> list[dict[str, Any]]:
 
 @router.get("/items/{item_id}/diagnose")
 def item_diagnose(item_id: str, anlass: str = Query("Alltag"),
-                  temp: float = Query(16)) -> dict[str, Any]:
-    """Warum taucht dieses Teil nicht in den Vorschlägen auf?"""
-    res = E.diagnose(db.list_items(), item_id, build_ctx(anlass, temp))
+                  temp: float = Query(16), regen: float = Query(0),
+                  wind: float = Query(0)) -> dict[str, Any]:
+    """Warum taucht dieses Teil nicht in den Vorschlägen auf — und was hülfe?"""
+    items = db.list_items()
+    ctx = build_ctx(anlass, temp, None, regen, wind)
+    res = E.diagnose(items, item_id, ctx)
     if not res.get("gefunden"):
         raise HTTPException(404, "Teil nicht gefunden.")
+    # Die Gegenfrage gleich mit: welcher Zukauf würde genau diesem Teil
+    # helfen? Spart einen zweiten Aufruf, und getrennt wäre die Antwort
+    # ohnehin nur die halbe Auskunft.
+    profil = db.get_profile()
+    res["abhilfe"] = E.abhilfe(items, item_id,
+                               catalog_for(profil.get("gender")), ctx)
     return res
 
 
@@ -868,7 +921,8 @@ def wiederholung(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     if not ids:
         raise HTTPException(400, "Keine Teile übergeben.")
     anlass = payload.get("anlass")
-    tage = int(payload.get("tage") or 21)
+    roh_tage = payload.get("tage")
+    tage = int(roh_tage) if roh_tage is not None else 21
     grenze = datetime.now(timezone.utc) - timedelta(days=tage)
 
     treffer = []
@@ -908,6 +962,50 @@ def _tage_her(iso: str | None) -> int | None:
     if d.tzinfo is None:
         d = d.replace(tzinfo=timezone.utc)
     return max(0, (datetime.now(timezone.utc) - d).days)
+
+
+def _ausgaben(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Was wurde wann gekauft?
+
+    Nur Teile mit Preis UND Kaufdatum — ohne beides ist die Zeitreihe
+    irreführend, weil undatierte Käufe im ältesten Jahr landen würden.
+    """
+    nach_jahr: dict[str, float] = {}
+    nach_kategorie: dict[str, float] = {}
+    for i in items:
+        preis, gekauft = i.get("price"), i.get("boughtAt")
+        if preis is None:
+            continue
+        kat = i.get("category") or "ohne Kategorie"
+        nach_kategorie[kat] = round(nach_kategorie.get(kat, 0.0) + float(preis), 2)
+        if not gekauft:
+            continue
+        jahr = str(gekauft)[:4]
+        if len(jahr) == 4 and jahr.isdigit():
+            nach_jahr[jahr] = round(nach_jahr.get(jahr, 0.0) + float(preis), 2)
+    return {
+        "jahre": [{"jahr": j, "summe": s} for j, s in sorted(nach_jahr.items())],
+        "kategorien": sorted(
+            [{"kategorie": k, "summe": s} for k, s in nach_kategorie.items()],
+            key=lambda x: -x["summe"]),
+        "ohneDatum": len([i for i in items
+                          if i.get("price") is not None and not i.get("boughtAt")]),
+    }
+
+
+def _waescheseit(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Wie lange wartet die Wäsche schon?
+
+    Gemessen am ältesten Teil im Korb. Die Frist selbst sagt nur, wann
+    ein Teil wieder verfügbar wäre — nicht, dass tatsächlich jemand
+    gewaschen hat.
+    """
+    wartend = [i for i in items
+               if not i.get("archived") and (E.laundry_remaining(i) > 0 or i.get("paused"))]
+    if not wartend:
+        return {"anzahl": 0, "laengsteTage": 0}
+    tage = [_tage_her(i.get("lastWorn")) or 0 for i in wartend]
+    return {"anzahl": len(wartend), "laengsteTage": max(tage) if tage else 0}
 
 
 @router.get("/stats")
@@ -964,6 +1062,8 @@ def stats() -> dict[str, Any]:
         "besteProTragen": sorted(
             [kurz(i) for i in mit_preis if cpw(i) is not None],
             key=lambda x: x["proTragen"])[:10],
+        "ausgaben": _ausgaben(items),
+        "waescheseit": _waescheseit(items),
         "inDerWaesche": [
             {"id": i["id"], "name": i.get("name"),
              "restTage": round(E.laundry_remaining(i), 1)}
@@ -1060,7 +1160,11 @@ def remove_plan(datum: str) -> dict[str, Any]:
 @router.post("/packliste")
 def packliste(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     """Was muss mit, um <tage> Tage bei <temp> Grad angezogen zu sein?"""
-    tage = int(payload.get("tage") or 5)
+    # Nicht "or 5": eine ausdrueckliche 0 ist eine Angabe und keine
+    # fehlende. pack_list() klemmt sie dann auf 1, statt sie stillschweigend
+    # in 5 zu verwandeln.
+    roh_tage = payload.get("tage")
+    tage = int(roh_tage) if roh_tage is not None else 5
     ctx = build_ctx(payload.get("anlass") or "Alltag",
                     float(payload.get("temp") if payload.get("temp") is not None else 16),
                     None,

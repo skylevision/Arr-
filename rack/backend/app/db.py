@@ -8,6 +8,7 @@ hier, damit kein Aufrufer beide Formen kennen muss.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import sqlite3
@@ -56,12 +57,18 @@ CREATE TABLE IF NOT EXISTS items (
   label_path      TEXT,
   tags            TEXT,
   archived        INTEGER NOT NULL DEFAULT 0,
+  person_id       INTEGER NOT NULL DEFAULT 1,
   wear_count      INTEGER NOT NULL DEFAULT 0,
   created_at      TEXT NOT NULL
 );
 
+-- Mehrere Personen: der CHECK (id = 1) ist seit 29.08.2026 weg. Auf
+-- bestehenden Datenbanken bleibt er stehen — SQLite kann Constraints nicht
+-- nachtraeglich loesen — deshalb baut migrate_profile() die Tabelle dort
+-- einmal neu auf.
 CREATE TABLE IF NOT EXISTS profile (
-  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT,
   gender     TEXT,
   height     INTEGER,
   build      TEXT,
@@ -84,7 +91,8 @@ CREATE TABLE IF NOT EXISTS outfit_log (
   occasion   TEXT,
   temp       REAL,
   score      REAL,
-  photo_path TEXT
+  photo_path TEXT,
+  person_id  INTEGER NOT NULL DEFAULT 1
 );
 
 -- Gespeicherte Outfits: ein Vorschlag, der funktioniert hat, unter einem
@@ -97,17 +105,20 @@ CREATE TABLE IF NOT EXISTS saved_outfits (
   item_ids   TEXT NOT NULL,
   notes      TEXT,
   occasion   TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  person_id  INTEGER NOT NULL DEFAULT 1
 );
 
 -- Geplante Outfits: was an welchem Tag angezogen werden soll. Ein Tag, ein
 -- Eintrag — deshalb plan_date als Primaerschluessel.
 CREATE TABLE IF NOT EXISTS planned_outfits (
-  plan_date  TEXT PRIMARY KEY,
+  plan_date  TEXT NOT NULL,
+  person_id  INTEGER NOT NULL DEFAULT 1,
   item_ids   TEXT NOT NULL,
   occasion   TEXT,
   notes      TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (person_id, plan_date)
 );
 
 CREATE TABLE IF NOT EXISTS trends_cache (
@@ -136,7 +147,7 @@ FIELDS = [
     ("laundry_until", "laundryUntil"), ("price", "price"),
     ("bought_at", "boughtAt"), ("brand", "brand"), ("size", "size"),
     ("care", "care"), ("label_path", "labelPath"), ("tags", "tags"),
-    ("archived", "archived"),
+    ("archived", "archived"), ("person_id", "personId"),
     ("wear_count", "wearCount"), ("created_at", "createdAt"),
 ]
 COL_TO_KEY = dict(FIELDS)
@@ -189,12 +200,90 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("items", "archived", "INTEGER NOT NULL DEFAULT 0"),
     ("items", "label_path", "TEXT"),
     ("items", "tags", "TEXT"),
+    ("items", "person_id", "INTEGER NOT NULL DEFAULT 1"),
+    ("outfit_log", "person_id", "INTEGER NOT NULL DEFAULT 1"),
+    ("saved_outfits", "person_id", "INTEGER NOT NULL DEFAULT 1"),
+    ("planned_outfits", "person_id", "INTEGER NOT NULL DEFAULT 1"),
+    ("profile", "name", "TEXT"),
     ("outfit_log", "photo_path", "TEXT"),
 ]
 
 
 def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
     return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def migrate_profile(conn: sqlite3.Connection) -> bool:
+    """Die alte Profiltabelle mit CHECK (id = 1) durch eine mehrzeilige ersetzen.
+
+    SQLite kann Constraints nicht nachtraeglich entfernen, also der
+    uebliche Weg: neue Tabelle, Daten kopieren, alte weg, umbenennen.
+    Laeuft nur, wenn der CHECK wirklich noch dasteht — auf einer frisch
+    angelegten Datenbank passiert nichts.
+
+    Bewusst innerhalb der Transaktion des Aufrufers: bricht etwas ab,
+    bleibt die alte Tabelle stehen, statt dass das Profil verschwindet.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='profile'").fetchone()
+    if not row or "CHECK (id = 1)" not in (row["sql"] or ""):
+        return False
+
+    conn.execute("""
+        CREATE TABLE profile_neu (
+          id         INTEGER PRIMARY KEY AUTOINCREMENT,
+          name       TEXT,
+          gender     TEXT,
+          height     INTEGER,
+          build      TEXT,
+          torso      TEXT,
+          glasses    INTEGER NOT NULL DEFAULT 0,
+          silhouette TEXT,
+          notes      TEXT
+        )""")
+    conn.execute("""
+        INSERT INTO profile_neu (id, gender, height, build, torso, glasses, silhouette, notes)
+        SELECT id, gender, height, build, torso, glasses, silhouette, notes FROM profile""")
+    conn.execute("DROP TABLE profile")
+    conn.execute("ALTER TABLE profile_neu RENAME TO profile")
+    return True
+
+
+def migrate_plans(conn: sqlite3.Connection) -> bool:
+    """planned_outfits auf den zusammengesetzten Schluessel umstellen.
+
+    plan_date allein reichte, solange es eine Person gab. Mit mehreren
+    kollidieren zwei Leute, die denselben Tag planen — der zweite Eintrag
+    haette den ersten ueberschrieben. SQLite kann den Primaerschluessel
+    nicht aendern, also neu aufbauen.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='planned_outfits'"
+    ).fetchone()
+    if not row:
+        return False
+    sql = row["sql"] or ""
+    if "PRIMARY KEY (person_id, plan_date)" in sql:
+        return False
+
+    conn.execute("""
+        CREATE TABLE planned_neu (
+          plan_date  TEXT NOT NULL,
+          person_id  INTEGER NOT NULL DEFAULT 1,
+          item_ids   TEXT NOT NULL,
+          occasion   TEXT,
+          notes      TEXT,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (person_id, plan_date)
+        )""")
+    conn.execute("""
+        INSERT OR REPLACE INTO planned_neu
+            (plan_date, person_id, item_ids, occasion, notes, created_at)
+        SELECT plan_date, COALESCE(person_id, 1), item_ids, occasion, notes, created_at
+        FROM planned_outfits""")
+    conn.execute("DROP TABLE planned_outfits")
+    conn.execute("ALTER TABLE planned_neu RENAME TO planned_outfits")
+    return True
 
 
 def migrate(conn: sqlite3.Connection) -> list[str]:
@@ -256,8 +345,28 @@ def init() -> None:
     conn = connect()
     with conn:
         conn.executescript(SCHEMA)
+        # Erst die Profiltabelle, dann die Spalten: der Neuaufbau bringt
+        # "name" bereits mit, migrate() ueberspringt den Eintrag dann.
+        profil_neu = migrate_profile(conn)
         applied = migrate(conn)
+        # Erst nachdem person_id existiert, sonst kopiert der Neuaufbau
+        # eine Spalte, die es noch nicht gibt.
+        plaene_neu = migrate_plans(conn)
+        # Person 1 muss existieren, bevor irgendetwas angelegt wird.
+        # Sonst vergibt SQLite die 1 an die erste *hinzugefuegte* Person,
+        # und deren Sachen landen im Bestand, der per Vorgabe Person 1
+        # zugeordnet ist — beide sehen dann alles.
+        if not conn.execute("SELECT 1 FROM profile WHERE id = 1").fetchone():
+            conn.execute(
+                "INSERT INTO profile (id, name, gender, height, build, torso, "
+                "glasses, silhouette, notes) VALUES (1, NULL, :gender, :height, "
+                ":build, :torso, 0, :silhouette, :notes)",
+                {**PROFILE_DEFAULT, "notes": PROFILE_DEFAULT.get("notes") or ""})
         umgestellt = backfill_materials(conn)
+    if profil_neu:
+        log.info("Profiltabelle fuer mehrere Personen neu aufgebaut")
+    if plaene_neu:
+        log.info("Planungstabelle auf (Person, Datum) umgestellt")
     if applied:
         log.info("Schema ergaenzt: %s", ", ".join(applied))
     if umgestellt:
@@ -287,9 +396,10 @@ def item_to_row(item: dict[str, Any]) -> dict[str, Any]:
 
 # ── Items ───────────────────────────────────────────────────────────────
 
-def list_items() -> list[dict[str, Any]]:
-    return [row_to_item(r) for r in
-            connect().execute("SELECT * FROM items ORDER BY created_at DESC")]
+def list_items(person_id: int | None = None) -> list[dict[str, Any]]:
+    return [row_to_item(r) for r in connect().execute(
+        "SELECT * FROM items WHERE person_id = ? ORDER BY created_at DESC",
+        (_pid(person_id),))]
 
 
 def get_item(item_id: str) -> dict[str, Any] | None:
@@ -301,6 +411,7 @@ def insert_item(item: dict[str, Any]) -> dict[str, Any]:
     row = item_to_row(item)
     row.setdefault("id", new_id())
     row.setdefault("created_at", now_iso())
+    row.setdefault("person_id", aktive_person())
     cols = ", ".join(row)
     marks = ", ".join(f":{c}" for c in row)
     conn = connect()
@@ -323,8 +434,17 @@ def update_item(item_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def delete_item(item_id: str) -> bool:
+    """Teil loeschen — samt der Rueckmeldungen, die es betreffen.
+
+    Die Paare in feedback bestehen aus zwei Teile-IDs. Bleiben sie nach
+    dem Loeschen stehen, wachsen sie still mit und koennen im
+    unguenstigen Fall eine spaeter neu vergebene ID treffen.
+    """
     conn = connect()
     with conn:
+        conn.execute(
+            "DELETE FROM feedback WHERE pair_key = ? OR pair_key LIKE ? OR pair_key LIKE ?",
+            (item_id, f"{item_id}|%", f"%|{item_id}"))
         cur = conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
     return cur.rowcount > 0
 
@@ -336,29 +456,122 @@ PROFILE_DEFAULT = {"gender": "männlich", "height": 180, "build": "normal",
                    "silhouette": "frei", "notes": ""}
 
 
-def get_profile() -> dict[str, Any]:
-    row = connect().execute("SELECT * FROM profile WHERE id = 1").fetchone()
+def get_profile(person_id: int | None = None) -> dict[str, Any]:
+    row = connect().execute(
+        "SELECT * FROM profile WHERE id = ?", (_pid(person_id),)).fetchone()
     if not row:
         return dict(PROFILE_DEFAULT)
     p = {k: row[k] for k in row.keys() if k != "id"}
     p["glasses"] = bool(p.get("glasses"))
+    p["id"] = row["id"]
     return p
 
 
-def save_profile(profile: dict[str, Any]) -> dict[str, Any]:
-    merged = {**get_profile(), **{k: v for k, v in profile.items() if k in PROFILE_DEFAULT}}
+def save_profile(profile: dict[str, Any], person_id: int | None = None) -> dict[str, Any]:
+    erlaubt = {**PROFILE_DEFAULT, "name": None}
+    person_id = _pid(person_id)
+    merged = {**get_profile(person_id),
+              **{k: v for k, v in profile.items() if k in erlaubt}}
     merged["glasses"] = 1 if merged.get("glasses") else 0
+    merged["id"] = person_id
+    merged.setdefault("name", None)
     conn = connect()
     with conn:
         conn.execute(
-            """INSERT INTO profile (id, gender, height, build, torso, glasses, silhouette, notes)
-               VALUES (1, :gender, :height, :build, :torso, :glasses, :silhouette, :notes)
+            """INSERT INTO profile (id, name, gender, height, build, torso,
+                                    glasses, silhouette, notes)
+               VALUES (:id, :name, :gender, :height, :build, :torso,
+                       :glasses, :silhouette, :notes)
                ON CONFLICT(id) DO UPDATE SET
+                 name=excluded.name,
                  gender=excluded.gender, height=excluded.height, build=excluded.build,
                  torso=excluded.torso, glasses=excluded.glasses,
                  silhouette=excluded.silhouette, notes=excluded.notes""",
             merged)
-    return get_profile()
+    return get_profile(person_id)
+
+
+# ── Personen ────────────────────────────────────────────────────────────
+#
+# Bis August 2026 gab es genau eine Profilzeile und keine Zuordnung der
+# Teile. Mehrere Personen nachtraeglich einzuziehen ist billig, solange
+# der Bestand klein ist, und teuer, sobald er es nicht mehr ist — deshalb
+# jetzt.
+#
+# Der Bestand bekommt Person 1. Alle Abfragen filtern auf die aktive
+# Person, die vom Client per Kopfzeile oder Parameter kommt; ohne Angabe
+# ist es Person 1. Fuer den Einzelnutzer aendert sich damit nichts.
+
+PERSON_DEFAULT = 1
+
+# Die aktive Person haengt am Request, nicht an einem Modulzustand: eine
+# ContextVar wird pro Anfrage gesetzt und ist damit auch dann korrekt,
+# wenn mehrere Anfragen gleichzeitig laufen. Der Alternativweg — jede
+# Abfragefunktion bekommt person_id durchgereicht — waere an zwanzig
+# Aufrufstellen zu aendern gewesen, und eine vergessene haette Daten
+# zwischen Personen vermischt, ohne dass etwas kaputtgeht.
+_person: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "rack_person", default=PERSON_DEFAULT)
+
+
+def aktive_person() -> int:
+    return _person.get()
+
+
+def setze_person(pid: int) -> None:
+    _person.set(pid if pid and pid > 0 else PERSON_DEFAULT)
+
+
+def _pid(person_id: int | None) -> int:
+    return person_id if person_id is not None else aktive_person()
+
+
+def list_persons() -> list[dict[str, Any]]:
+    return [{k: r[k] for k in r.keys()} for r in
+            connect().execute("SELECT * FROM profile ORDER BY id")]
+
+
+def add_person(name: str) -> dict[str, Any]:
+    conn = connect()
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO profile (gender, height, build, torso, glasses, silhouette, notes, name) "
+            "VALUES (:gender, :height, :build, :torso, :glasses, :silhouette, :notes, :name)",
+            {**PROFILE_DEFAULT, "glasses": 0, "name": name})
+    row = connect().execute(
+        "SELECT * FROM profile WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return {k: row[k] for k in row.keys()}
+
+
+def delete_person(person_id: int) -> tuple[bool, list[str]]:
+    """Person und alles, was ihr gehoert.
+
+    Gibt die Bildpfade zurueck, statt die Dateien selbst zu loeschen: db.py
+    kennt das Dateisystem nicht, und der Aufrufer raeumt auf. Sonst bleiben
+    verwaiste Bilder im Volume liegen.
+    """
+    # Person 1 bleibt: sie traegt den Bestand, der vor der Umstellung da war.
+    if int(person_id) == PERSON_DEFAULT:
+        return False, []
+    conn = connect()
+    bilder = [p for row in conn.execute(
+        "SELECT image_path, label_path FROM items WHERE person_id = ?", (person_id,))
+        for p in (row["image_path"], row["label_path"]) if p]
+    bilder += [row["photo_path"] for row in conn.execute(
+        "SELECT photo_path FROM outfit_log WHERE person_id = ?", (person_id,))
+        if row["photo_path"]]
+    with conn:
+        conn.execute(
+            "DELETE FROM feedback WHERE pair_key IN ("
+            "  SELECT f.pair_key FROM feedback f JOIN items i"
+            "    ON f.pair_key LIKE i.id || '|%' OR f.pair_key LIKE '%|' || i.id"
+            "  WHERE i.person_id = ?)", (person_id,))
+        conn.execute("DELETE FROM items WHERE person_id = ?", (person_id,))
+        conn.execute("DELETE FROM outfit_log WHERE person_id = ?", (person_id,))
+        conn.execute("DELETE FROM saved_outfits WHERE person_id = ?", (person_id,))
+        conn.execute("DELETE FROM planned_outfits WHERE person_id = ?", (person_id,))
+        cur = conn.execute("DELETE FROM profile WHERE id = ?", (person_id,))
+    return cur.rowcount > 0, bilder
 
 
 # ── Feedback ────────────────────────────────────────────────────────────
@@ -399,7 +612,7 @@ def log_outfit(item_ids: list[str], occasion: str | None,
 
     entry = {"id": new_id("log"), "worn_at": now_iso(),
              "item_ids": json.dumps(item_ids), "occasion": occasion,
-             "temp": temp, "score": score}
+             "temp": temp, "score": score, "person_id": aktive_person()}
     frist = (datetime.now(timezone.utc)
              + timedelta(days=settings.laundry_days)).isoformat()
     # Was in den naechsten Tagen eingeplant ist, bleibt verfuegbar — sonst
@@ -409,8 +622,10 @@ def log_outfit(item_ids: list[str], occasion: str | None,
     conn = connect()
     with conn:
         conn.execute(
-            """INSERT INTO outfit_log (id, worn_at, item_ids, occasion, temp, score)
-               VALUES (:id, :worn_at, :item_ids, :occasion, :temp, :score)""", entry)
+            """INSERT INTO outfit_log
+                   (id, worn_at, item_ids, occasion, temp, score, person_id)
+               VALUES (:id, :worn_at, :item_ids, :occasion, :temp, :score,
+                       :person_id)""", entry)
         for item_id in item_ids:
             row = conn.execute(
                 "SELECT category FROM items WHERE id = ?", (item_id,)).fetchone()
@@ -429,9 +644,10 @@ def set_outfit_photo(log_id: str, pfad: str) -> None:
         conn.execute("UPDATE outfit_log SET photo_path = ? WHERE id = ?", (pfad, log_id))
 
 
-def list_outfit_log(limit: int = 200) -> list[dict[str, Any]]:
+def list_outfit_log(limit: int = 200, person_id: int | None = None) -> list[dict[str, Any]]:
     rows = connect().execute(
-        "SELECT * FROM outfit_log ORDER BY worn_at DESC LIMIT ?", (limit,))
+        "SELECT * FROM outfit_log WHERE person_id = ? ORDER BY worn_at DESC LIMIT ?",
+        (_pid(person_id), limit))
     return [{**{k: r[k] for k in r.keys()}, "item_ids": json.loads(r["item_ids"])}
             for r in rows]
 
@@ -448,21 +664,25 @@ def _outfit_row(row: sqlite3.Row) -> dict[str, Any]:
     return d
 
 
-def list_saved_outfits() -> list[dict[str, Any]]:
+def list_saved_outfits(person_id: int | None = None) -> list[dict[str, Any]]:
     return [_outfit_row(r) for r in connect().execute(
-        "SELECT * FROM saved_outfits ORDER BY created_at DESC")]
+        "SELECT * FROM saved_outfits WHERE person_id = ? ORDER BY created_at DESC",
+        (_pid(person_id),))]
 
 
 def save_outfit(name: str, item_ids: list[str], occasion: str | None = None,
                 notes: str | None = None) -> dict[str, Any]:
     entry = {"id": new_id("fit"), "name": name,
              "item_ids": json.dumps(item_ids), "occasion": occasion,
-             "notes": notes, "created_at": now_iso()}
+             "notes": notes, "created_at": now_iso(),
+             "person_id": aktive_person()}
     conn = connect()
     with conn:
         conn.execute(
-            "INSERT INTO saved_outfits (id, name, item_ids, occasion, notes, created_at) "
-            "VALUES (:id, :name, :item_ids, :occasion, :notes, :created_at)", entry)
+            "INSERT INTO saved_outfits "
+            "  (id, name, item_ids, occasion, notes, created_at, person_id) "
+            "VALUES (:id, :name, :item_ids, :occasion, :notes, :created_at, "
+            "        :person_id)", entry)
     row = connect().execute(
         "SELECT * FROM saved_outfits WHERE id = ?", (entry["id"],)).fetchone()
     return _outfit_row(row)
@@ -477,46 +697,53 @@ def delete_saved_outfit(outfit_id: str) -> bool:
 
 # ── Geplante Outfits ────────────────────────────────────────────────────
 
-def list_plans(von: str | None = None, bis: str | None = None) -> list[dict[str, Any]]:
-    sql = "SELECT * FROM planned_outfits"
-    args: list[Any] = []
+def list_plans(von: str | None = None, bis: str | None = None,
+               person_id: int | None = None) -> list[dict[str, Any]]:
+    sql = "SELECT * FROM planned_outfits WHERE person_id = ?"
+    args: list[Any] = [_pid(person_id)]
     if von and bis:
-        sql += " WHERE plan_date BETWEEN ? AND ?"
-        args = [von, bis]
+        sql += " AND plan_date BETWEEN ? AND ?"
+        args += [von, bis]
     sql += " ORDER BY plan_date"
     return [_outfit_row(r) for r in connect().execute(sql, args)]
 
 
-def get_plan(datum: str) -> dict[str, Any] | None:
+def get_plan(datum: str, person_id: int | None = None) -> dict[str, Any] | None:
     row = connect().execute(
-        "SELECT * FROM planned_outfits WHERE plan_date = ?", (datum,)).fetchone()
+        "SELECT * FROM planned_outfits WHERE plan_date = ? AND person_id = ?",
+        (datum, _pid(person_id))).fetchone()
     return _outfit_row(row) if row else None
 
 
 def set_plan(datum: str, item_ids: list[str], occasion: str | None = None,
-             notes: str | None = None) -> dict[str, Any]:
-    # Ein Tag, ein Outfit — ein zweiter Eintrag ersetzt den ersten.
-    entry = {"plan_date": datum, "item_ids": json.dumps(item_ids),
+             notes: str | None = None, person_id: int | None = None) -> dict[str, Any]:
+    # Ein Tag, ein Outfit — je Person. Ein zweiter Eintrag ersetzt den ersten.
+    person_id = _pid(person_id)
+    entry = {"plan_date": datum, "person_id": person_id,
+             "item_ids": json.dumps(item_ids),
              "occasion": occasion, "notes": notes, "created_at": now_iso()}
     conn = connect()
     with conn:
         conn.execute(
-            "INSERT INTO planned_outfits (plan_date, item_ids, occasion, notes, created_at) "
-            "VALUES (:plan_date, :item_ids, :occasion, :notes, :created_at) "
-            "ON CONFLICT(plan_date) DO UPDATE SET "
+            "INSERT INTO planned_outfits "
+            "  (plan_date, person_id, item_ids, occasion, notes, created_at) "
+            "VALUES (:plan_date, :person_id, :item_ids, :occasion, :notes, :created_at) "
+            "ON CONFLICT(person_id, plan_date) DO UPDATE SET "
             "  item_ids=excluded.item_ids, occasion=excluded.occasion, "
             "  notes=excluded.notes, created_at=excluded.created_at", entry)
-    return get_plan(datum)
+    return get_plan(datum, person_id)
 
 
-def delete_plan(datum: str) -> bool:
+def delete_plan(datum: str, person_id: int | None = None) -> bool:
     conn = connect()
     with conn:
-        cur = conn.execute("DELETE FROM planned_outfits WHERE plan_date = ?", (datum,))
+        cur = conn.execute(
+            "DELETE FROM planned_outfits WHERE plan_date = ? AND person_id = ?",
+            (datum, _pid(person_id)))
     return cur.rowcount > 0
 
 
-def geplante_teile(ab: str) -> set[str]:
+def geplante_teile(ab: str, person_id: int | None = None) -> set[str]:
     # Teile, die ab heute noch eingeplant sind.
     #
     # Die Waesche darf nichts sperren, was in den naechsten Tagen gebraucht
@@ -524,7 +751,8 @@ def geplante_teile(ab: str) -> set[str]:
     # nimmt es einem am Mittwoch weg.
     out: set[str] = set()
     for row in connect().execute(
-            "SELECT item_ids FROM planned_outfits WHERE plan_date >= ?", (ab,)):
+            "SELECT item_ids FROM planned_outfits "
+            "WHERE plan_date >= ? AND person_id = ?", (ab, _pid(person_id))):
         out.update(json.loads(row["item_ids"]))
     return out
 

@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  api, etikettUrl, followIngest, followOutfits, imageUrl, setToken, token,
+  api, etikettUrl, followIngest, followOutfits, imageUrl, person, setPerson,
+  setToken, token,
 } from "./api.js";
 import {
-  ACCESSORY_TYPES, BOTTOM_LEN, BUILDS, C, CATEGORIES, DISPLAY, FITS, MATERIALS,
+  ACCESSORY_TYPES, BOTTOM_LEN, BUILDS, C, CARE_LABELS, CATEGORIES, DISPLAY,
+  FITS, MATERIALS,
   OCCASIONS, PATTERN_SCALE, PATTERNS, PHOTO_GUIDE, RISES, SANS, SHOE_WEIGHT,
   SILHOUETTES, SLEEVES, TEXTURES, THICKNESS, TOP_LEN, TORSOS,
 } from "./constants.js";
-import { CARE_LABELS } from "./constants.js";
 
 /* ═══════════════════════════════════════════════════════════════════
    RACK
@@ -90,8 +91,14 @@ export default function App() {
   const [packTage, setPackTage] = useState(5);
   const [packTemp, setPackTemp] = useState(16);
   const [ausmisten, setAusmisten] = useState(null);
+  const [personen, setPersonen] = useState([]);
+  const aktivePerson = person();
   const [diagnose, setDiagnose] = useState(null);
   const [wiederholungen, setWiederholungen] = useState({});
+  // Regen und Wind aus dem letzten Wetterabruf. Gehen in die
+  // Materialbewertung ein — ohne sie zählt nur die Temperatur, und dann
+  // steht man mit Wildleder im Regen.
+  const [wetter, setWetter] = useState({ regen: 0, wind: 0 });
   const [waschgaenge, setWaschgaenge] = useState(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -185,6 +192,7 @@ export default function App() {
   // es fehl, greifen die eingebauten Listen und die App bleibt bedienbar.
   useEffect(() => {
     api.vocab().then(setVocab).catch(() => {});
+    api.personen().then(setPersonen).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -335,14 +343,18 @@ export default function App() {
 
     let job;
     try {
-      job = await api.startOutfits({ anlass: occasion, temp, anker: anchor });
+      job = await api.startOutfits({
+        anlass: occasion, temp, anker: anchor, ...wetter,
+      });
     } catch (err) {
       setSuggesting(null);
       // Der Vorgangsweg fehlt vielleicht, etwa nach einem Teilupdate.
       // Dann eben in einem Rutsch, nur ohne Fortschritt.
       try {
         setBusy("Kuratiere");
-        zeigeErgebnis(await api.outfits({ anlass: occasion, temp, anker: anchor }));
+        zeigeErgebnis(await api.outfits({
+          anlass: occasion, temp, anker: anchor, ...wetter,
+        }));
       } catch (err2) {
         fail(err2, "Die Vorschläge konnten nicht geholt werden.");
       }
@@ -390,10 +402,16 @@ export default function App() {
             pos.coords.longitude.toFixed(2)
           );
           if (typeof w.temp === "number") setTemp(Math.round(w.temp));
+          setWetter({ regen: w.regen || 0, wind: w.wind || 0 });
+          const zusatz = [];
+          if (w.regen >= 0.2) zusatz.push(`${w.regen} mm Regen`);
+          if (w.wind >= 20) zusatz.push(`${Math.round(w.wind)} km/h Wind`);
           setNotice(
             `${Math.round(w.temp)} Grad${
               typeof w.gefuehlt === "number" ? `, gefühlt ${Math.round(w.gefuehlt)}` : ""
-            }${w.gecacht ? " (gespeichert)" : ""}`
+            }${zusatz.length ? `, ${zusatz.join(", ")}` : ""}${
+              w.gecacht ? " (gespeichert)" : ""
+            }`
           );
         } catch (err) {
           fail(err, "Das Wetter war nicht abrufbar.");
@@ -524,11 +542,44 @@ export default function App() {
     if (!detail?.id) { setDiagnose(null); return; }
     let aktuell = true;
     setDiagnose(null);
-    api.diagnose(detail.id, occasion, temp)
+    api.diagnose(detail.id, occasion, temp, wetter)
       .then((d) => { if (aktuell) setDiagnose(d); })
       .catch(() => {});
     return () => { aktuell = false; };
   }, [detail?.id, occasion, temp]);
+
+  // Nach dem Wechsel wird neu geladen statt jeden Zustand einzeln
+  // umzuhängen: Teile, Profil, Planung, Protokoll und Vorschläge hängen
+  // alle an der Person, und ein halb umgeschalteter Zustand wäre die
+  // schlechtere Variante.
+  function personWechseln(id) {
+    if (id === aktivePerson) return;
+    setPerson(id);
+    window.location.reload();
+  }
+
+  async function personAnlegen() {
+    const name = window.prompt("Name der Person?");
+    if (!name?.trim()) return;
+    try {
+      const p = await api.personAnlegen(name.trim());
+      setPersonen(await api.personen());
+      personWechseln(p.id);
+    } catch (err) {
+      fail(err, "Die Person ließ sich nicht anlegen.");
+    }
+  }
+
+  async function personLoeschen(id) {
+    if (!window.confirm("Diese Person und alle ihre Teile endgültig löschen?")) return;
+    try {
+      await api.personLoeschen(id);
+      setPerson(1);
+      window.location.reload();
+    } catch (err) {
+      fail(err, "Die Person ließ sich nicht löschen.");
+    }
+  }
 
   async function etikettHochladen(id, file) {
     if (!file) return;
@@ -599,7 +650,9 @@ export default function App() {
   async function packlisteBauen() {
     setBusy("Rechne die Packliste");
     try {
-      setPackListe(await api.packliste({ tage: packTage, temp: packTemp, anlass: occasion }));
+      setPackListe(await api.packliste({
+        tage: packTage, temp: packTemp, anlass: occasion, ...wetter,
+      }));
     } catch (err) {
       fail(err, "Die Packliste ließ sich nicht berechnen.");
     }
@@ -1585,6 +1638,44 @@ export default function App() {
                 </section>
               )}
 
+              {stats.waescheseit?.anzahl > 0 && (
+                <p style={{ color: C.faint }} className="mt-5 text-xs leading-relaxed">
+                  {stats.waescheseit.anzahl}{" "}
+                  {stats.waescheseit.anzahl === 1 ? "Teil wartet" : "Teile warten"} auf die
+                  Wäsche{stats.waescheseit.laengsteTage > 0
+                    ? `, das älteste seit ${stats.waescheseit.laengsteTage} Tagen`
+                    : ""}. Unter „Planen" steht, was zusammen in eine Maschine kann.
+                </p>
+              )}
+
+              {stats.ausgaben?.jahre?.length > 0 && (
+                <section className="mt-7">
+                  <Label>Ausgaben</Label>
+                  <ul className="mt-2">
+                    {stats.ausgaben.jahre.map((j) => (
+                      <li key={j.jahr} style={{ borderColor: C.line }}
+                          className="flex justify-between border-b py-2 text-sm">
+                        <span>{j.jahr}</span>
+                        <span style={{ color: C.faint }}>{j.summe.toFixed(2)} €</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {stats.ausgaben.kategorien.length > 0 && (
+                    <p style={{ color: C.faint }} className="mt-2 text-xs leading-relaxed">
+                      Nach Art: {stats.ausgaben.kategorien
+                        .map((k) => `${k.kategorie} ${k.summe.toFixed(0)} €`)
+                        .join(" · ")}
+                    </p>
+                  )}
+                  {stats.ausgaben.ohneDatum > 0 && (
+                    <p style={{ color: C.faint }} className="mt-1 text-xs">
+                      {stats.ausgaben.ohneDatum} mit Preis, aber ohne Kaufdatum — die
+                      fehlen in der Jahresliste.
+                    </p>
+                  )}
+                </section>
+              )}
+
               {ausmisten?.vorschlaege?.length > 0 && (
                 <section className="mt-7">
                   <Label>könnte weg</Label>
@@ -2298,6 +2389,24 @@ export default function App() {
               </div>
             )}
 
+            {diagnose?.abhilfe?.length > 0 && (
+              <div className="mt-4">
+                <Label>was hülfe</Label>
+                <ul className="mt-1">
+                  {diagnose.abhilfe.map((a) => (
+                    <li key={a.name} style={{ borderColor: C.line }}
+                        className="flex justify-between border-b py-2 text-sm">
+                      <span className="flex-1 pr-3">{a.name}</span>
+                      <span style={{ color: C.faint }} className="whitespace-nowrap text-xs">
+                        {a.neueOutfits > 0 ? `+${a.neueOutfits} ` : ""}
+                        {a.bestePunkteVorher}→{a.bestePunkteNachher}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="mt-5 flex items-center justify-between">
               <Label>{detail.wearCount || 0} mal getragen</Label>
               {waescheTage(detail) > 0 ? (
@@ -2368,6 +2477,46 @@ export default function App() {
               >
                 schließen
               </button>
+            </div>
+
+            <div style={{ borderColor: C.line }} className="mb-5 border-b pb-5">
+              <Label>Person</Label>
+              <p style={{ color: C.faint }} className="mt-1 text-xs leading-relaxed">
+                Jede Person hat ihren eigenen Schrank, ihr eigenes Protokoll und ihre
+                eigene Planung. Der Wechsel lädt die App neu.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {personen.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => personWechseln(p.id)}
+                    style={{
+                      borderColor: p.id === aktivePerson ? C.text : C.line,
+                      color: p.id === aktivePerson ? C.text : C.faint,
+                      letterSpacing: "0.14em",
+                    }}
+                    className="border px-3 py-2 text-[10px] uppercase"
+                  >
+                    {p.name || (p.id === 1 ? "ich" : `Person ${p.id}`)}
+                  </button>
+                ))}
+                <button
+                  onClick={personAnlegen}
+                  style={{ borderColor: C.line, color: C.dim, letterSpacing: "0.14em" }}
+                  className="border px-3 py-2 text-[10px] uppercase"
+                >
+                  + neu
+                </button>
+              </div>
+              {aktivePerson !== 1 && (
+                <button
+                  onClick={() => personLoeschen(aktivePerson)}
+                  style={{ color: C.signal, letterSpacing: "0.14em" }}
+                  className="mt-2 text-[10px] uppercase"
+                >
+                  diese Person mit allen Teilen löschen
+                </button>
+              )}
             </div>
 
             <div className="mt-5 flex flex-col gap-2">
