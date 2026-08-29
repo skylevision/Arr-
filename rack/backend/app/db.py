@@ -78,10 +78,15 @@ CREATE TABLE IF NOT EXISTS profile (
   notes      TEXT
 );
 
+-- pair_key bleibt allein der Schluessel: er besteht aus zwei Teile-IDs,
+-- und die sind ueber alle Personen eindeutig. Zwei Personen koennen
+-- denselben Schluessel also gar nicht erzeugen, ein zusammengesetzter
+-- Schluessel waere hier nur Ballast. person_id dient dem Filtern.
 CREATE TABLE IF NOT EXISTS feedback (
   pair_key   TEXT PRIMARY KEY,
   verdict    TEXT NOT NULL CHECK (verdict IN ('liked', 'disliked')),
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  person_id  INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS outfit_log (
@@ -205,6 +210,7 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("saved_outfits", "person_id", "INTEGER NOT NULL DEFAULT 1"),
     ("planned_outfits", "person_id", "INTEGER NOT NULL DEFAULT 1"),
     ("profile", "name", "TEXT"),
+    ("feedback", "person_id", "INTEGER NOT NULL DEFAULT 1"),
     ("outfit_log", "photo_path", "TEXT"),
 ]
 
@@ -624,11 +630,7 @@ def delete_person(person_id: int) -> tuple[bool, list[str]]:
         "SELECT photo_path FROM outfit_log WHERE person_id = ?", (person_id,))
         if row["photo_path"]]
     with conn:
-        conn.execute(
-            "DELETE FROM feedback WHERE pair_key IN ("
-            "  SELECT f.pair_key FROM feedback f JOIN items i"
-            "    ON f.pair_key LIKE i.id || '|%' OR f.pair_key LIKE '%|' || i.id"
-            "  WHERE i.person_id = ?)", (person_id,))
+        conn.execute("DELETE FROM feedback WHERE person_id = ?", (person_id,))
         conn.execute("DELETE FROM items WHERE person_id = ?", (person_id,))
         conn.execute("DELETE FROM outfit_log WHERE person_id = ?", (person_id,))
         conn.execute("DELETE FROM saved_outfits WHERE person_id = ?", (person_id,))
@@ -639,10 +641,17 @@ def delete_person(person_id: int) -> tuple[bool, list[str]]:
 
 # ── Feedback ────────────────────────────────────────────────────────────
 
-def get_feedback() -> dict[str, list[str]]:
-    """Liefert die Form, die die Engine erwartet."""
+def get_feedback(person_id: int | None = None) -> dict[str, list[str]]:
+    """Liefert die Form, die die Engine erwartet.
+
+    Gefiltert nach Person: fremde Paare koennen zwar nie treffen — sie
+    bestehen aus Teile-IDs, die der anderen Person gehoeren — aber sie
+    haetten in jeder Bewertung mitgeschleppt werden muessen.
+    """
     out = {"liked": [], "disliked": []}
-    for row in connect().execute("SELECT pair_key, verdict FROM feedback"):
+    for row in connect().execute(
+            "SELECT pair_key, verdict FROM feedback WHERE person_id = ?",
+            (_pid(person_id),)):
         out[row["verdict"]].append(row["pair_key"])
     return out
 
@@ -654,11 +663,12 @@ def set_feedback(pair: str, verdict: str | None) -> None:
             conn.execute("DELETE FROM feedback WHERE pair_key = ?", (pair,))
         else:
             conn.execute(
-                """INSERT INTO feedback (pair_key, verdict, updated_at)
-                   VALUES (?, ?, ?)
+                """INSERT INTO feedback (pair_key, verdict, updated_at, person_id)
+                   VALUES (?, ?, ?, ?)
                    ON CONFLICT(pair_key) DO UPDATE SET
-                     verdict=excluded.verdict, updated_at=excluded.updated_at""",
-                (pair, verdict, now_iso()))
+                     verdict=excluded.verdict, updated_at=excluded.updated_at,
+                     person_id=excluded.person_id""",
+                (pair, verdict, now_iso(), aktive_person()))
 
 
 # ── Outfit-Protokoll ────────────────────────────────────────────────────

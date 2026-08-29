@@ -320,3 +320,34 @@ def test_kennung_bleibt_ueber_personen_hinweg_eindeutig(frisch):
         assert db.item_exists("a") is True
     finally:
         db.setze_person(1)
+
+
+def test_rueckmeldungen_bleiben_je_person_getrennt(frisch):
+    db = frisch
+    db.set_feedback("a|b", "liked")
+    p2 = db.add_person("Zweite")
+    db.setze_person(p2["id"])
+    try:
+        assert db.get_feedback() == {"liked": [], "disliked": []}
+        db.set_feedback("c|d", "disliked")
+        assert db.get_feedback()["disliked"] == ["c|d"]
+    finally:
+        db.setze_person(1)
+    assert db.get_feedback()["liked"] == ["a|b"]
+    assert db.get_feedback()["disliked"] == []
+
+
+def test_person_loeschen_nimmt_ihre_rueckmeldungen_mit(frisch):
+    db = frisch
+    p2 = db.add_person("Zweite")
+    db.setze_person(p2["id"])
+    try:
+        db.set_feedback("x|y", "liked")
+    finally:
+        db.setze_person(1)
+    db.set_feedback("a|b", "liked")
+    db.delete_person(p2["id"])
+    # Die eigene bleibt, die fremde ist weg.
+    assert db.get_feedback()["liked"] == ["a|b"]
+    uebrig = db.connect().execute("SELECT COUNT(*) c FROM feedback").fetchone()["c"]
+    assert uebrig == 1
