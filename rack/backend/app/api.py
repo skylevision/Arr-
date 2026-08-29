@@ -566,7 +566,11 @@ def _payload_for_model(picks: list[dict]) -> list[dict[str, Any]]:
     return [{
         "nr": i,
         "punkte": round(p["score"]["total"] * 100),
-        "teile": [{"id": x.get("id"), "name": x.get("name"), "art": x.get("subcategory"),
+        # kategorie gehoert dazu: "laenge" bedeutet bei einem Oberteil
+        # etwas anderes als bei einer Hose, und ohne die Einordnung raet
+        # das Modell, was "hueftlang" gerade heisst.
+        "teile": [{"id": x.get("id"), "name": x.get("name"),
+                   "kategorie": x.get("category"), "art": x.get("subcategory"),
                    "farbe": x.get("colorName"), "hex": x.get("colorHex"),
                    "schnitt": x.get("fit"), "laenge": x.get("length"),
                    "bund": x.get("rise"), "aermel": x.get("sleeve"),
@@ -664,7 +668,12 @@ def _outfit_result(payload: dict[str, Any],
             [{"type": "text",
               "text": P.curation_prompt(db.get_profile(), occasion, temp, trends,
                                         _payload_for_model(picks))}],
-            model=settings.model_curate, max_tokens=2000, effort="medium")
+            # Grosszuegig, weil max_tokens auch das Nachdenken des
+            # Modells abdeckt: mit 2000 brach die Antwort regelmaessig
+            # mitten im JSON ab, obwohl der Text selbst kaum 700 Zeichen
+            # hatte. Bezahlt wird ohnehin nur, was tatsaechlich
+            # erzeugt wird — ein hoeheres Limit kostet nichts extra.
+            model=settings.model_curate, max_tokens=8000, effort="medium")
     except ai.AIUnavailable as exc:
         abbruch = engine_only(f"Die Kuratierung war nicht erreichbar ({exc}). "
                               "Das ist die Rangfolge der Engine.")

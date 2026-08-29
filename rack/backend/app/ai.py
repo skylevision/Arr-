@@ -121,6 +121,19 @@ def ask(content: list[dict[str, Any]], *, model: str | None = None,
     if response.stop_reason == "refusal":
         raise AIUnavailable("Das Modell hat die Anfrage abgelehnt.", "abgelehnt")
 
+    # Am Limit abgeschnitten. Das eigens zu melden ist kein Luxus: sonst
+    # scheitert erst das JSON-Lesen, und die Meldung zeigt auf ein
+    # Formatproblem, obwohl schlicht der Platz nicht reichte.
+    #
+    # Wichtig dabei: max_tokens deckt bei den aktuellen Modellen auch das
+    # Nachdenken ab. Ein Limit, das fuer die reine Antwort dicke reichen
+    # wuerde, kann trotzdem mitten im Satz enden.
+    if response.stop_reason == "max_tokens":
+        log.warning("Antwort bei max_tokens=%s abgeschnitten (effort=%s)",
+                    max_tokens, effort)
+        raise AIUnavailable(
+            "Die Antwort des Modells passte nicht in das Token-Limit.", "limit")
+
     text = "\n".join(b.text for b in response.content if b.type == "text")
     return extract_json(text)
 

@@ -425,6 +425,38 @@ kein Bild erwischt wird, das zwischen Anzeigen und Bestätigen entstanden ist.
 Solche Reste stammen aus Löschungen von früher; seit dem 29.08.2026 räumt jede Löschung
 selbst auf.
 
+#### Was der Kurations-Prompt inzwischen leistet
+
+Zwei Nachschärfungen gegenüber `rack.jsx`, beide auf Ansage:
+
+1. **Keine Leerschritte.** Ein Schritt, der beschreibt, etwas *nicht* zu tun, ist keiner.
+2. **Verdeckte Teile** (30.08.2026). Der Auslöser war ein Gürtel, zu dem „offen tragen"
+   im Styling stand, während ein hüftlanges, nicht eingestecktes T-Shirt darüber hing —
+   ein Widerspruch, der beim Anziehen auffällt und vorher nicht.
+
+Für einen Gürtel im Outfit muss jetzt genau eine von drei Aussagen fallen: ein Handgriff,
+der ihn zeigt (vorne einstecken, hinten hängen lassen); ein Halbsatz, dass er hier den
+Sitz der Hose macht und nur in Bewegung aufblitzt; oder er landet unter „weglassen".
+Stillschweigend übergehen zählt nicht — er ist im Outfit, also gehört ein Wort dazu.
+
+Damit das Modell das beurteilen kann, bekommt es seit derselben Änderung auch die
+**Kategorie** jedes Teils: „hüftlang" bedeutet bei einem Oberteil etwas anderes als bei
+einer Hose.
+
+Nachgemessen an drei kuratierten Outfits: vor der Schärfung sprachen zwei von drei den
+Gürtel an, danach drei von drei — je einmal pro Variante.
+
+#### Warum `max_tokens` großzügig steht
+
+Bei den aktuellen Modellen deckt `max_tokens` **auch das Nachdenken** ab. Mit 2000 brach
+die Kuration regelmäßig mitten im JSON ab, obwohl der Text selbst kaum 700 Zeichen hatte —
+das Denken hatte den Platz aufgebraucht. Jetzt 8000; bezahlt wird ohnehin nur, was
+tatsächlich erzeugt wird.
+
+`ai.ask()` prüft dafür `stop_reason == "max_tokens"` und meldet es als eigenen Fall. Sonst
+scheitert erst das JSON-Lesen, und die Meldung zeigt auf ein Formatproblem, obwohl schlicht
+der Platz nicht reichte.
+
 #### JavaScript-Semantik
 
 An drei Stellen musste die JavaScript-Semantik ausdrücklich nachgebaut werden, weil

@@ -121,6 +121,13 @@ Regeln für deine Antwort:
 - Konkret heißt: Layering-Reihenfolge, Hemd offen oder geschlossen und wie viele Knöpfe, wie und wie weit die Ärmel gekrempelt werden, Oberteil eingesteckt, halb eingesteckt oder offen, Hosensaum auf dem Schuh oder gekrempelt, Sitz der Mütze. Das sind Beispiele für die gewünschte Genauigkeit, keine Liste zum Abarbeiten.
 - Zwei bis fünf Schritte. Zwei, die etwas verändern, sind besser als fünf mit Füllmaterial. Wenn ein Outfit schlicht ist, ist es schlicht.
 - Schreib keinen Schritt über ein Teil, das man in diesem Outfit gar nicht sieht. Eine Uhr unter einem langen Ärmel ist nur dann ein Thema, wenn der Ärmel gekrempelt wird. Trägt ein Accessoire so nichts bei, nenn es unter "weglassen" statt einen Schritt darüber zu schreiben.
+- Prüfe bei jedem Teil, was die anderen davon verdecken. Entscheidend ist die Länge des Oberteils und ob es eingesteckt wird: ein hüftlanges oder longline geschnittenes Oberteil, das offen getragen wird, liegt über dem Hosenbund und verdeckt Gürtel und Schnalle weitgehend.
+- Ist ein Gürtel im Outfit, muss genau eine dieser drei Aussagen fallen, und zwar so, dass man sie versteht:
+  a) ein Handgriff, der ihn zeigt — das Oberteil vorne locker in den Bund stecken und hinten hängen lassen, damit die Schnalle frei liegt;
+  b) das Oberteil bleibt offen und der Gürtel ist dann überwiegend verdeckt: dann gehört in die Begründung ein Halbsatz, dass er hier den Sitz der Hose macht und nur in Bewegung aufblitzt;
+  c) er bringt in diesem Aufbau nichts — dann unter "weglassen".
+  Diese Prüfung gilt für jedes Outfit einzeln, in dem ein Gürtel steckt. Ihn stillschweigend zu übergehen ist keine der drei Möglichkeiten: er ist im Outfit, also gehört ein Wort dazu.
+  Was nicht geht: ein Schritt wie "Gürtel offen tragen" oder "Gürtel sichtbar lassen", während das Oberteil unbeanstandet darüber hängt. Das widerspricht sich, und beim Anziehen steht man dann davor.
 - Der Trendhinweis ist optional und darf die Auswahl nicht überstimmen. Lass ihn weg, wenn er nichts beiträgt.
 - Die drei Outfits sollen sich klar unterscheiden.
 
