@@ -448,14 +448,28 @@ Gürtel an, danach drei von drei — je einmal pro Variante.
 
 #### Warum `max_tokens` großzügig steht
 
-Bei den aktuellen Modellen deckt `max_tokens` **auch das Nachdenken** ab. Mit 2000 brach
-die Kuration regelmäßig mitten im JSON ab, obwohl der Text selbst kaum 700 Zeichen hatte —
-das Denken hatte den Platz aufgebraucht. Jetzt 8000; bezahlt wird ohnehin nur, was
-tatsächlich erzeugt wird.
+Bei den aktuellen Modellen deckt `max_tokens` **auch das Nachdenken** ab — und das ist der
+Teil, den man im Ergebnis nicht sieht. Gemessen an einem echten Kurationsaufruf:
+**3368 Ausgabe-Tokens** bei rund 700 Zeichen sichtbarem Text. Mit dem alten Limit von 2000
+brach die Kuration also nicht gelegentlich ab, sondern **immer**; die App fiel still auf
+die reine Engine-Rangfolge zurück.
 
-`ai.ask()` prüft dafür `stop_reason == "max_tokens"` und meldet es als eigenen Fall. Sonst
-scheitert erst das JSON-Lesen, und die Meldung zeigt auf ein Formatproblem, obwohl schlicht
-der Platz nicht reichte.
+| Aufruf | vorher | jetzt | warum |
+|---|---|---|---|
+| Ganzkörperfoto | 500 | 2000 | kurze Antwort, aber Bildauswertung und Denken zählen mit |
+| Teil einlesen | 800 | 3000 | fünfzehn Felder, und der Materialteil des Prompts ist länger geworden |
+| Trends | 1500 | 8000 | mit Websuche: die Recherche läuft im selben Zug |
+| Kuration | 2000 | 8000 | gemessen 3368 — das alte Limit konnte nie reichen |
+| Lückenanalyse | 3000 | 8000 | Websuche plus mehrere Vorschläge |
+
+Höhere Limits kosten nichts: abgerechnet wird, was tatsächlich erzeugt wird.
+
+**Gemessen statt geraten:** `ai.ask()` protokolliert nach jedem Aufruf die Auslastung
+(`… 3368 von 8000 Ausgabe-Tokens (42 %)`) und macht daraus ab 80 Prozent eine Warnung.
+Damit sieht man kommen, dass ein Limit eng wird, statt es am kaputten JSON zu merken.
+Zusätzlich wird `stop_reason == "max_tokens"` als eigener Fall gemeldet — sonst scheitert
+erst das JSON-Lesen, und die Meldung zeigt auf ein Formatproblem, obwohl schlicht der
+Platz nicht reichte.
 
 #### JavaScript-Semantik
 

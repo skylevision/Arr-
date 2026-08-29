@@ -118,6 +118,18 @@ def ask(content: list[dict[str, Any]], *, model: str | None = None,
         log.warning("Modellaufruf fehlgeschlagen: %s", type(exc).__name__)
         raise _describe(exc) from None
 
+    # Wieviel vom Limit tatsaechlich gebraucht wurde. Ohne diese Zeile
+    # bleibt die Wahl der Limits Raterei: das Nachdenken zaehlt mit, ist
+    # aber im Text nicht zu sehen. Ab 80 Prozent Auslastung wird es eine
+    # Warnung — dann ist der naechste Abbruch nur eine Frage der Laenge.
+    nutzung = getattr(response, "usage", None)
+    if nutzung is not None:
+        raus = getattr(nutzung, "output_tokens", 0) or 0
+        anteil = raus / max_tokens if max_tokens else 0
+        melden = log.warning if anteil >= 0.8 else log.info
+        melden("Modell %s: %s von %s Ausgabe-Tokens (%.0f %%), effort=%s",
+               body["model"], raus, max_tokens, anteil * 100, effort)
+
     if response.stop_reason == "refusal":
         raise AIUnavailable("Das Modell hat die Anfrage abgelehnt.", "abgelehnt")
 

@@ -171,7 +171,9 @@ async def body_analysis(foto: UploadFile = File(...)) -> dict[str, Any]:
         res = ai.ask(
             [{"type": "image", "source": {"type": "base64", "media_type": media, "data": b64}},
              {"type": "text", "text": P.BODY_PROMPT}],
-            model=settings.model_vision, max_tokens=500, effort="low")
+            # 500 waren zu knapp bemessen: die Antwort ist zwar kurz,
+            # aber das Nachdenken zaehlt gegen dasselbe Limit.
+            model=settings.model_vision, max_tokens=2000, effort="low")
     except ai.AIUnavailable as exc:
         raise HTTPException(502, str(exc)) from None
     finally:
@@ -340,7 +342,9 @@ def _read_one(data: bytes) -> dict[str, Any]:
               "source": {"type": "base64", "media_type": fertig.modell_media_type,
                          "data": images.to_base64(fertig.modell)}},
              {"type": "text", "text": P.READ_PROMPT}],
-            model=settings.model_vision, max_tokens=800, effort="low")
+            # Fuenfzehn Felder Antwort plus Bildauswertung und Denken.
+            # Der Materialteil des Prompts ist seit August laenger.
+            model=settings.model_vision, max_tokens=3000, effort="low")
         entry["status"] = "fertig"
     except ai.AIUnavailable as exc:
         # Wie im Prototypen: die Karte kommt trotzdem, nur mit leeren
@@ -592,7 +596,10 @@ def _cached_trends() -> dict[str, Any] | None:
         return cached["payload"] if cached else None
     try:
         res = ai.ask([{"type": "text", "text": P.trends_prompt(db.get_profile())}],
-                     model=settings.model_curate, max_tokens=1500, search=True)
+                     # Mit Websuche: die Recherche laeuft im selben Zug,
+                     # ihre Zwischenschritte zaehlen mit. 1500 war dafuer
+                     # deutlich zu wenig.
+                     model=settings.model_curate, max_tokens=8000, search=True)
         return db.save_trends(res)["payload"]
     except ai.AIUnavailable:
         return cached["payload"] if cached else None
@@ -1345,7 +1352,8 @@ def gaps(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
                 "hinweis": "Ohne API-Schlüssel ist das die reine Rechnung."}
     try:
         res = ai.ask([{"type": "text", "text": P.gaps_prompt(db.get_profile(), data)}],
-                     model=settings.model_curate, max_tokens=3000, search=True)
+                     # Ebenfalls mit Websuche und mehreren Vorschlaegen.
+                     model=settings.model_curate, max_tokens=8000, search=True)
     except ai.AIUnavailable as exc:
         return {"roh": data, "empfehlungen": [],
                 "waisen": [{"teil": w["name"],
