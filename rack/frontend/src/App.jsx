@@ -606,6 +606,36 @@ export default function App() {
     }
   }
 
+  async function teilKlonen(id) {
+    try {
+      const kopie = await api.klonen(id);
+      setItems(await api.items());
+      setDetail(kopie);
+      setNotice("Kopie angelegt. Foto und Farbe fehlen noch.");
+    } catch (err) {
+      fail(err, "Die Kopie ließ sich nicht anlegen.");
+    }
+  }
+
+  async function aufraeumen() {
+    try {
+      const stand = await api.verwaisteBilder();
+      if (!stand.anzahl) {
+        setNotice("Keine verwaisten Bilder gefunden.");
+        return;
+      }
+      const mb = (stand.bytes / 1048576).toFixed(1);
+      if (!window.confirm(
+        `${stand.anzahl} Bilddateien gehören zu keinem Teil mehr (${mb} MB). Löschen?`
+      )) return;
+      const res = await api.verwaisteBilderLoeschen();
+      setNotice(`${res.geloescht} Dateien entfernt.`
+        + (res.fehlgeschlagen ? ` ${res.fehlgeschlagen} ließen sich nicht löschen.` : ""));
+    } catch (err) {
+      fail(err, "Das Aufräumen ist gescheitert.");
+    }
+  }
+
   async function etikettHochladen(id, file) {
     if (!file) return;
     setBusy("Speichere das Etikett");
@@ -2498,6 +2528,14 @@ export default function App() {
                 Outfit hierzu
               </button>
               <button
+                onClick={() => teilKlonen(detail.id)}
+                style={{ borderColor: C.line, color: C.dim, letterSpacing: "0.16em" }}
+                className="px-4 py-4 text-[10px] uppercase border"
+                title="Zweites Exemplar: gleiche Eigenschaften, ohne Foto und Verlauf"
+              >
+                Kopie
+              </button>
+              <button
                 onClick={() => updateItem(detail.id, { archived: !detail.archived })}
                 style={{ borderColor: C.line, color: C.dim, letterSpacing: "0.16em" }}
                 className="px-4 py-4 text-[10px] uppercase border"
@@ -2754,6 +2792,18 @@ export default function App() {
                 Import
               </button>
             </div>
+
+            <button
+              onClick={aufraeumen}
+              style={{ color: C.dim, letterSpacing: "0.16em" }}
+              className="mb-3 text-[10px] uppercase"
+            >
+              Verwaiste Bilder aufräumen
+            </button>
+            <p style={{ color: C.faint }} className="mb-3 text-xs leading-relaxed">
+              Sucht Bilddateien, zu denen es kein Teil mehr gibt. Solche Reste stammen aus
+              Löschungen von früher — neue hinterlassen keine.
+            </p>
           </div>
         </div>
       )}

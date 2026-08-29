@@ -950,6 +950,75 @@ def wiederholung(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return {"geprueft": tage, "treffer": treffer[:5], "warnung": warnung}
 
 
+@router.post("/items/{item_id}/klonen")
+def klone_teil(item_id: str) -> dict[str, Any]:
+    """Zweites Exemplar desselben Stücks anlegen.
+
+    Für dasselbe Shirt in einer anderen Farbe: Schnitt, Material, Länge,
+    Marke, Größe und Pflege stimmen, nur Foto und Farbe nicht. Beides
+    trägt man danach nach.
+    """
+    kopie = db.clone_item(item_id)
+    if not kopie:
+        raise HTTPException(404, "Teil nicht gefunden.")
+    return kopie
+
+
+# ── Aufräumen ───────────────────────────────────────────────────────────
+
+def _verwaiste_bilder() -> list[dict[str, Any]]:
+    """Bilddateien, auf die kein Datensatz mehr zeigt.
+
+    Entstehen, wenn Teile oder Personen gelöscht wurden, bevor das
+    Aufräumen beim Löschen eingebaut war. Neue Löschungen hinterlassen
+    keine mehr.
+    """
+    gebraucht = db.alle_bildpfade()
+    verzeichnis = settings.images_dir
+    if not verzeichnis.is_dir():
+        return []
+    out = []
+    for datei in sorted(verzeichnis.iterdir()):
+        if not datei.is_file() or datei.name in gebraucht:
+            continue
+        out.append({"datei": datei.name, "bytes": datei.stat().st_size})
+    return out
+
+
+@router.get("/verwaiste-bilder")
+def verwaiste_bilder() -> dict[str, Any]:
+    liste = _verwaiste_bilder()
+    return {"anzahl": len(liste), "bytes": sum(x["bytes"] for x in liste),
+            "dateien": liste[:200]}
+
+
+@router.post("/verwaiste-bilder/loeschen")
+def verwaiste_bilder_loeschen() -> dict[str, Any]:
+    """Die eben ermittelten Dateien entfernen.
+
+    Die Liste wird direkt vor dem Löschen neu bestimmt, nicht aus einem
+    vorherigen Aufruf übernommen — sonst könnte zwischen Anzeigen und
+    Bestätigen ein Teil entstanden sein, dessen Bild dann mit weggeräumt
+    würde.
+    """
+    liste = _verwaiste_bilder()
+    weg, fehler = 0, 0
+    for eintrag in liste:
+        pfad = images.path_for(eintrag["datei"])
+        if not pfad:
+            fehler += 1
+            continue
+        try:
+            pfad.unlink()
+            weg += 1
+        except OSError:
+            fehler += 1
+    if weg or fehler:
+        log.info("Verwaiste Bilder entfernt: %d, fehlgeschlagen: %d", weg, fehler)
+    return {"geloescht": weg, "fehlgeschlagen": fehler,
+            "bytes": sum(x["bytes"] for x in liste)}
+
+
 # ── Auswertung ──────────────────────────────────────────────────────────
 
 def _tage_her(iso: str | None) -> int | None:
@@ -1394,6 +1463,11 @@ def import_all(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
             db.update_item(raw["id"], item)
             aktualisiert += 1
         else:
+            # Die Kennung kann bei einer anderen Person liegen — der
+            # Primaerschluessel gilt ueber alle. Dann eine neue vergeben,
+            # statt am Konflikt zu scheitern.
+            if db.item_exists(item["id"]):
+                item["id"] = db.new_id()
             item.setdefault("createdAt", raw.get("createdAt") or db.now_iso())
             db.insert_item(item)
             neu += 1

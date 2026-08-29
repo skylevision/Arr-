@@ -387,7 +387,10 @@ und ohne Doppelte, damit die Suche zuverlässig trifft.
 #### Mehrere Personen
 
 Jede Person hat ihren eigenen Schrank, ihr eigenes Protokoll, ihre eigene Planung und ihr
-eigenes Profil. Die aktive Person kommt als Kopfzeile `X-Rack-Person` oder als
+eigenes Profil. Der Personenfilter sitzt dabei auch in `get_item()`, nicht nur in
+`list_items()`: sämtliche Einzelzugriffe — ändern, löschen, klonen, Bild abrufen — laufen
+über diese eine Funktion, und ohne den Filter käme jeder an fremde Teile, der ihre Kennung
+kennt. Die aktive Person kommt als Kopfzeile `X-Rack-Person` oder als
 `?person=`; ohne Angabe ist es Person 1 — für den Einzelnutzer ändert sich damit nichts.
 
 Umgesetzt über eine **ContextVar**, die eine Middleware pro Anfrage setzt. Die Abfragen in
@@ -404,6 +407,23 @@ Personen, die denselben Tag planen, sich gegenseitig überschrieben.
 **Person 1 lässt sich nicht löschen**: sie trägt den Bestand, der vor der Umstellung
 angelegt wurde. Und sie wird beim Start angelegt, falls sie fehlt — sonst bekäme die erste
 *hinzugefügte* Person die 1 und ihre Sachen lägen im Altbestand.
+
+#### Kopieren und Aufräumen
+
+**Kopie** (`POST /api/items/{id}/klonen`) legt ein zweites Exemplar desselben Stücks an:
+Schnitt, Material, Länge, Marke, Größe, Pflege und Schlagworte werden übernommen, **Foto
+und Verlauf nicht**. Das Foto zeigt das andere Teil, und ein falsches Bild ist schlechter
+als gar keins; getragen wurde die Kopie noch nie. Gedacht für dasselbe Shirt in einer
+zweiten Farbe.
+
+**Verwaiste Bilder** (`GET`/`POST /api/verwaiste-bilder`) findet Dateien im Volume, auf
+die kein Datensatz mehr zeigt. Die Referenzen werden dabei **über alle Personen** gesammelt
+— mit dem Personenfilter würde das Aufräumen die Bilder der jeweils anderen als
+vermeintlich verwaist löschen. Die Liste wird direkt vor dem Löschen neu bestimmt, damit
+kein Bild erwischt wird, das zwischen Anzeigen und Bestätigen entstanden ist.
+
+Solche Reste stammen aus Löschungen von früher; seit dem 29.08.2026 räumt jede Löschung
+selbst auf.
 
 #### JavaScript-Semantik
 

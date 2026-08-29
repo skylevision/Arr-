@@ -223,3 +223,100 @@ def test_gemerktes_outfit_ohne_id_erkennt_sich_am_namen(frisch):
     assert db.merge_saved_outfit({"name": "Ohne Kennung", "itemIds": ["a"]}) is True
     assert db.merge_saved_outfit({"name": "Ohne Kennung", "itemIds": ["a"]}) is False
     assert len(db.list_saved_outfits()) == 1
+
+
+# ── Klonen ──────────────────────────────────────────────────────────────
+
+def test_klon_uebernimmt_die_eigenschaften(frisch):
+    db = frisch
+    db.insert_item({"id": "a", "name": "Cordhemd", "category": "Oberteil",
+                    "material": "Cord", "brand": "Marke", "size": "M",
+                    "care": "30 Grad", "fit": "regular", "tags": "büro",
+                    "price": 59.0})
+    kopie = db.clone_item("a")
+    for feld in ("category", "material", "brand", "size", "care", "fit", "tags", "price"):
+        assert kopie[feld] == db.get_item("a")[feld], feld
+    assert kopie["name"] == "Cordhemd (Kopie)"
+    assert kopie["id"] != "a"
+
+
+def test_klon_erbt_weder_bild_noch_verlauf(frisch):
+    """Das Bild zeigt das andere Teil, und getragen wurde die Kopie nie."""
+    db = frisch
+    db.insert_item({"id": "a", "name": "A", "category": "Oberteil",
+                    "imagePath": "a.jpg", "labelPath": "label_a.jpg",
+                    "wearCount": 12, "lastWorn": "2026-08-01T00:00:00+00:00",
+                    "laundryUntil": "2099-01-01T00:00:00+00:00", "paused": True})
+    kopie = db.clone_item("a")
+    assert kopie["imagePath"] is None
+    assert kopie["labelPath"] is None
+    assert kopie["wearCount"] == 0
+    assert kopie["lastWorn"] is None
+    assert kopie["laundryUntil"] is None
+    assert kopie["paused"] is False
+
+
+def test_klon_eines_unbekannten_teils(frisch):
+    assert frisch.clone_item("gibtsnicht") is None
+
+
+def test_klon_landet_bei_der_aktiven_person(frisch):
+    db = frisch
+    p2 = db.add_person("Zweite")
+    db.insert_item({"id": "a", "name": "A", "category": "Oberteil"})
+    db.setze_person(p2["id"])
+    try:
+        # Das Quellteil gehoert Person 1 und ist von hier aus unsichtbar.
+        assert db.clone_item("a") is None
+    finally:
+        db.setze_person(1)
+
+
+# ── Verwaiste Bilder ────────────────────────────────────────────────────
+
+def test_bildpfade_sammeln_ueber_alle_personen(frisch):
+    """Ohne das loescht ein Aufraeumen die Bilder der jeweils anderen
+    Person als vermeintlich verwaist."""
+    db = frisch
+    p2 = db.add_person("Zweite")
+    db.insert_item({"id": "a", "name": "A", "category": "Oberteil",
+                    "imagePath": "a.jpg", "labelPath": "label_a.jpg"})
+    db.insert_item({"id": "b", "name": "B", "category": "Oberteil",
+                    "imagePath": "b.jpg", "personId": p2["id"]})
+    db.merge_outfit_log({"id": "log_1", "worn_at": "2026-08-01T00:00:00+00:00",
+                         "item_ids": ["a"]}, foto="ootd_log_1.jpg")
+    pfade = db.alle_bildpfade()
+    assert pfade == {"a.jpg", "label_a.jpg", "b.jpg", "ootd_log_1.jpg"}
+
+
+def test_fremdes_teil_ist_nicht_erreichbar(frisch):
+    """get_item() ohne Personenfilter war ein Leck: samtliche
+    Einzelzugriffe — andern, loschen, klonen, Bild abrufen — laufen
+    darueber. Wer die Kennung kannte, kam an fremde Teile."""
+    db = frisch
+    db.insert_item({"id": "a", "name": "Von Person 1", "category": "Oberteil"})
+    p2 = db.add_person("Zweite")
+    db.setze_person(p2["id"])
+    try:
+        assert db.get_item("a") is None
+        assert db.update_item("a", {"name": "gekapert"}) is None
+        assert db.delete_item("a") is False
+        assert db.clone_item("a") is None
+    finally:
+        db.setze_person(1)
+    # unversehrt
+    assert db.get_item("a")["name"] == "Von Person 1"
+
+
+def test_kennung_bleibt_ueber_personen_hinweg_eindeutig(frisch):
+    """Der Primaerschluessel gilt global — item_exists() sieht das auch
+    dann, wenn get_item() die fremde Zeile ausblendet."""
+    db = frisch
+    db.insert_item({"id": "a", "name": "A", "category": "Oberteil"})
+    p2 = db.add_person("Zweite")
+    db.setze_person(p2["id"])
+    try:
+        assert db.get_item("a") is None
+        assert db.item_exists("a") is True
+    finally:
+        db.setze_person(1)

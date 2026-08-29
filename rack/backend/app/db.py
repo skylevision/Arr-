@@ -402,9 +402,28 @@ def list_items(person_id: int | None = None) -> list[dict[str, Any]]:
         (_pid(person_id),))]
 
 
-def get_item(item_id: str) -> dict[str, Any] | None:
-    row = connect().execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+def get_item(item_id: str, person_id: int | None = None) -> dict[str, Any] | None:
+    """Teil der aktiven Person.
+
+    Der Personenfilter gehoert hierher und nicht nur in list_items():
+    saemtliche Einzelzugriffe — aendern, loeschen, klonen, Bild abrufen —
+    laufen ueber diese Funktion. Ohne den Filter koennte eine Person die
+    Teile einer anderen bearbeiten, sobald sie deren Kennung kennt.
+    """
+    row = connect().execute(
+        "SELECT * FROM items WHERE id = ? AND person_id = ?",
+        (item_id, _pid(person_id))).fetchone()
     return row_to_item(row) if row else None
+
+
+def item_exists(item_id: str) -> bool:
+    """Gibt es die Kennung ueberhaupt — egal bei wem?
+
+    Nur fuer den Import: der Primaerschluessel gilt ueber alle Personen,
+    eine fremde Kennung wuerde beim Einfuegen kollidieren.
+    """
+    return connect().execute(
+        "SELECT 1 FROM items WHERE id = ?", (item_id,)).fetchone() is not None
 
 
 def insert_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -421,6 +440,8 @@ def insert_item(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def update_item(item_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+    if not get_item(item_id):
+        return None
     row = item_to_row(patch)
     row.pop("id", None)
     row.pop("created_at", None)
@@ -440,6 +461,8 @@ def delete_item(item_id: str) -> bool:
     dem Loeschen stehen, wachsen sie still mit und koennen im
     unguenstigen Fall eine spaeter neu vergebene ID treffen.
     """
+    if not get_item(item_id):
+        return False
     conn = connect()
     with conn:
         conn.execute(
@@ -447,6 +470,46 @@ def delete_item(item_id: str) -> bool:
             (item_id, f"{item_id}|%", f"%|{item_id}"))
         cur = conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
     return cur.rowcount > 0
+
+
+def alle_bildpfade() -> set[str]:
+    """Jeder Bildpfad, den irgendein Datensatz noch braucht.
+
+    Bewusst OHNE Personenfilter: wer aufraeumt, darf nicht nur den
+    eigenen Schrank betrachten, sonst loescht er die Bilder der anderen
+    Personen als vermeintlich verwaist.
+    """
+    pfade: set[str] = set()
+    conn = connect()
+    for row in conn.execute("SELECT image_path, label_path FROM items"):
+        for p in (row["image_path"], row["label_path"]):
+            if p:
+                pfade.add(p)
+    for row in conn.execute("SELECT photo_path FROM outfit_log"):
+        if row["photo_path"]:
+            pfade.add(row["photo_path"])
+    return pfade
+
+
+def clone_item(item_id: str) -> dict[str, Any] | None:
+    """Teil kopieren: alles ausser Bild, Verlauf und Kennung.
+
+    Gedacht fuer dasselbe Stueck in einer zweiten Farbe oder Groesse. Das
+    Bild wandert bewusst nicht mit — es zeigt das andere Teil, und ein
+    falsches Bild ist schlechter als gar keins. Der Verlauf bleibt
+    ebenfalls draussen: die Kopie wurde noch nie getragen.
+    """
+    quelle = get_item(item_id)
+    if not quelle:
+        return None
+    kopie = {k: v for k, v in quelle.items()
+             if k not in ("id", "imagePath", "labelPath", "createdAt",
+                          "wearCount", "lastWorn", "laundryUntil")}
+    kopie["name"] = f"{quelle.get('name') or 'Teil'} (Kopie)"
+    kopie["wearCount"] = 0
+    kopie["paused"] = False
+    kopie["archived"] = False
+    return insert_item(kopie)
 
 
 # ── Profil ──────────────────────────────────────────────────────────────

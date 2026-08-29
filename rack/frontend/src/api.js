@@ -83,6 +83,10 @@ export const api = {
   stats: () => call("/stats"),
   items: () => call("/items"),
   wiederVerfuegbar: (id) => call(`/items/${id}/verfuegbar`, { method: "POST" }),
+  klonen: (id) => call(`/items/${id}/klonen`, { method: "POST" }),
+  verwaisteBilder: () => call("/verwaiste-bilder"),
+  verwaisteBilderLoeschen: () =>
+    call("/verwaiste-bilder/loeschen", { method: "POST" }),
 
   gespeicherteOutfits: () => call("/gespeicherte-outfits"),
   outfitSpeichern: (payload) =>
