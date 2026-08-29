@@ -41,7 +41,28 @@ RUN mkdir -p /opt/rack/models \
 
 
 # ─────────────────────────────────────────────────────────────────────
-# 3. Laufzeit
+# 3. Engine-Tests. Laufen im Build, nicht zur Laufzeit.
+#
+#    Die Regel-Engine ist der Teil, den man beim Anpassen am leichtesten
+#    kaputt macht, und ein Fehler faellt dort nicht auf — die App laeuft
+#    weiter, sie schlaegt nur schlechtere Outfits vor. Deshalb bricht der
+#    Build ab, wenn ein Schwellwert nicht mehr stimmt. Ein Image mit
+#    roter Engine kann so gar nicht erst auf dem Server landen.
+#
+#    Zur Laufzeit werden weder pytest noch die Tests mitgeliefert.
+# ─────────────────────────────────────────────────────────────────────
+FROM deps AS tests
+
+ENV PYTHONPATH=/install/lib/python3.12/site-packages \
+    PYTHONDONTWRITEBYTECODE=1
+RUN pip install --no-cache-dir --prefix=/install pytest==9.1.1
+COPY backend/ /src/
+WORKDIR /src
+RUN python -m pytest -q
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 4. Laufzeit
 # ─────────────────────────────────────────────────────────────────────
 FROM python:3.12-slim
 
@@ -55,6 +76,9 @@ RUN apt-get update \
 
 COPY --from=deps /install /usr/local
 COPY --from=deps /opt/rack/models /opt/rack/models
+# Erzwingt, dass die Teststufe gelaufen ist, bevor das Laufzeit-Image
+# entsteht — BuildKit wuerde sie sonst als unbenutzten Zweig ueberspringen.
+COPY --from=tests /src/pytest.ini /app/pytest.ini
 COPY backend/app /app/app
 COPY --from=frontend /build/dist /app/static
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

@@ -131,6 +131,24 @@ async def body_analysis(foto: UploadFile = File(...)) -> dict[str, Any]:
 
 # ── Erfassen ────────────────────────────────────────────────────────────
 
+def _normalise_material(attrs: dict[str, Any]) -> None:
+    """material auf das Vokabular abbilden, Zweitmaterial abspalten.
+
+    Greift an jedem Eingang: beim Lesen durch das Modell, beim Speichern
+    und beim Bearbeiten von Hand. Unbekanntes wird zu None — lieber ein
+    leeres Feld als ein Material, das einen falschen Waermebonus zieht.
+    """
+    if "material" not in attrs:
+        return
+    haupt, zweit = E.split_materials(attrs.get("material"))
+    attrs["material"] = haupt
+    # Ein von Hand gesetztes Zweitmaterial nicht ueberschreiben, wenn die
+    # Eingabe selbst keines enthielt.
+    if zweit or not attrs.get("materialSecondary"):
+        attrs["materialSecondary"] = zweit
+
+
+
 _jobs: dict[str, dict[str, Any]] = {}
 JOB_TTL = 3600
 
@@ -144,9 +162,10 @@ def _prune_jobs() -> None:
 def _read_one(data: bytes) -> dict[str, Any]:
     """Ein Bild aufbereiten und lesen lassen. Gibt einen Vorschlag zurueck,
     noch kein gespeichertes Objekt."""
-    prepared, media, cut = images.prepare(data, cutout=settings.cutout)
-    entry: dict[str, Any] = {"bild": images.to_base64(prepared), "mediaType": media,
-                             "cutout": cut}
+    fertig = images.prepare(data, cutout=settings.cutout)
+    entry: dict[str, Any] = {"bild": images.to_base64(fertig.ablage),
+                             "mediaType": fertig.media_type,
+                             "cutout": fertig.cutout}
     if not settings.ai_enabled:
         entry["attrs"] = {"name": "", "category": "Oberteil", "fit": "regular",
                           "pattern": "uni", "thickness": "mittel",
@@ -157,9 +176,12 @@ def _read_one(data: bytes) -> dict[str, Any]:
         return entry
 
     try:
+        # Bewusst die groessere Fassung: das Material ist genau das
+        # Merkmal, das an der Aufloesung haengt.
         attrs = ai.ask(
             [{"type": "image",
-              "source": {"type": "base64", "media_type": media, "data": entry["bild"]}},
+              "source": {"type": "base64", "media_type": fertig.modell_media_type,
+                         "data": images.to_base64(fertig.modell)}},
              {"type": "text", "text": P.READ_PROMPT}],
             model=settings.model_vision, max_tokens=800, effort="low")
         entry["status"] = "fertig"
@@ -175,7 +197,13 @@ def _read_one(data: bytes) -> dict[str, Any]:
     attrs["category"] = attrs.get("category") if attrs.get("category") in E.CATEGORIES \
         else "Oberteil"
     attrs["fit"] = attrs.get("fit") if attrs.get("fit") in E.FITS else "regular"
+    roh_material = attrs.get("material")
+    _normalise_material(attrs)
     entry["unsicher"] = attrs.pop("unsicher", []) or []
+    # Ein Material, das sich nicht zuordnen liess, gehoert auf die
+    # Pruefkarte — sonst speichert man stillschweigend ein leeres Feld.
+    if roh_material and not attrs.get("material") and "material" not in entry["unsicher"]:
+        entry["unsicher"].append("material")
     # Waerme und Formalitaet werden gerechnet, nie vom Modell uebernommen.
     attrs.pop("warmth", None)
     attrs.pop("formality", None)
@@ -290,6 +318,7 @@ def create_item(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     item_id = attrs.get("id") or db.new_id()
     attrs["id"] = item_id
     attrs.setdefault("cutout", payload.get("cutout", False))
+    _normalise_material(attrs)
 
     # Nur ohne Handmarkierung neu rechnen.
     computed = E.derive(attrs)
@@ -318,6 +347,8 @@ def patch_item(item_id: str, patch: dict[str, Any] = Body(...)) -> dict[str, Any
         raise HTTPException(404, "Teil nicht gefunden.")
 
     merged = {**current, **patch}
+    if "material" in patch:
+        _normalise_material(merged)
     # Wer einen Wert von Hand setzt, markiert ihn damit als manuell.
     if "warmth" in patch and patch["warmth"] != current.get("warmth"):
         merged["warmthManual"] = True

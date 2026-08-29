@@ -24,6 +24,16 @@ export const RISES = ["high", "mid", "low"];
 export const THICKNESS = ["dünn", "mittel", "dick"];
 export const PATTERNS = ["uni", "gestreift", "kariert", "gemustert", "meliert", "logo"];
 export const SHOE_WEIGHT = ["filigran", "normal", "chunky"];
+// Muss mit engine.MATERIALS uebereinstimmen: das Backend bildet jede
+// Eingabe darauf ab, ein hier erfundener Wert landet als leeres Feld.
+export const MATERIALS = [
+  "Baumwolle", "Cord", "Denim", "Leinen", "Jersey", "Strick", "Wolle",
+  "Kaschmir", "Fleece", "Daune", "Leder", "Wildleder", "Kunstleder",
+  "Seide", "Satin", "Viskose", "Synthetik", "Mesh",
+];
+export const TEXTURES = ["glatt", "strukturiert", "glänzend", "flauschig", "robust"];
+export const PATTERN_SCALE = ["klein", "mittel", "groß"];
+export const SLEEVES = ["ärmellos", "kurz", "dreiviertel", "lang"];
 export const BUILDS = ["schlank", "normal", "athletisch", "kräftig"];
 export const TORSOS = ["langer Oberkörper", "ausgeglichen", "lange Beine"];
 

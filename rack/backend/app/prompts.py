@@ -5,8 +5,18 @@ uebernommen; angepasst wurden nur die Template-Einsetzungen, aus
 ${profile?.gender || "männlich"} wird die gleichwertige Python-Formatierung
 mit denselben Ersatzwerten.
 
-Eine Ausnahme, auf ausdrueckliche Ansage des Auftraggebers und damit
-abweichend von Briefing Abschnitt 5: der Kurations-Prompt. Die
+Zwei Ausnahmen, beide auf ausdrueckliche Ansage des Auftraggebers und
+damit abweichend von Briefing Abschnitt 5.
+
+Erstens, seit 29.08.2026: im READ_PROMPT ist "material" keine freie
+Angabe mehr, sondern eine Auswahl aus dem Vokabular in engine.MATERIALS.
+Vorher lieferte das Modell irgendein Wort, das nur ueber eine
+Substring-Suche wirkte — "Bio-Baumwolle" wurde so zu Wolle, und Cord
+fand gar nicht statt. Zweitrangige Materialien duerfen nach einem
+Schraegstrich folgen; normalize_material() faengt Abweichungen weiterhin
+ab, der Prompt soll sie nur seltener produzieren.
+
+Zweitens: der Kurations-Prompt. Die
 Aufzaehlung der Styling-Aspekte las sich als Checkliste und erzeugte
 Leerschritte wie "kurze Aermel unbehandelt lassen" oder "keine Uhr, da
 nicht sichtbar". Jetzt gilt: jeder Schritt muss eine Entscheidung
@@ -32,7 +42,7 @@ Antworte nur mit JSON.
  "colorName": "deutsche Farbbezeichnung",
  "pattern": "uni | gestreift | kariert | gemustert | meliert | logo",
  "patternScale": "klein | mittel | groß oder null",
- "material": "sichtbares Material in einem Wort",
+ "material": "eines von: Baumwolle, Cord, Denim, Leinen, Jersey, Strick, Wolle, Kaschmir, Fleece, Daune, Leder, Wildleder, Kunstleder, Seide, Satin, Viskose, Synthetik, Mesh. Bei sichtbar zwei Materialien das flaechenmaessig groessere zuerst, das zweite nach einem Schraegstrich, etwa \"Wildleder/Mesh\". Wenn nicht erkennbar: null",
  "thickness": "dünn | mittel | dick",
  "texture": "glatt | strukturiert | glänzend | flauschig | robust",
  "fit": "oversize | weit | regular | slim | cropped",

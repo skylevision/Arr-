@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api, followIngest, followOutfits, imageUrl, setToken, token } from "./api.js";
 import {
-  ACCESSORY_TYPES, BOTTOM_LEN, BUILDS, C, CATEGORIES, DISPLAY, FITS, OCCASIONS,
-  PATTERNS, PHOTO_GUIDE, RISES, SANS, SHOE_WEIGHT, SILHOUETTES, THICKNESS,
-  TOP_LEN, TORSOS,
+  ACCESSORY_TYPES, BOTTOM_LEN, BUILDS, C, CATEGORIES, DISPLAY, FITS, MATERIALS,
+  OCCASIONS, PATTERN_SCALE, PATTERNS, PHOTO_GUIDE, RISES, SANS, SHOE_WEIGHT,
+  SILHOUETTES, SLEEVES, TEXTURES, THICKNESS, TOP_LEN, TORSOS,
 } from "./constants.js";
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -55,6 +55,7 @@ export default function App() {
   const [queue, setQueue] = useState([]);
   const [qIndex, setQIndex] = useState(0);
   const [progress, setProgress] = useState(null);
+  const slowPatch = useRef(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -384,6 +385,16 @@ export default function App() {
     } catch (err) {
       fail(err, "Die Änderung ging nicht durch.");
     }
+  }
+
+  // Farbwähler und Textfeld feuern bei jeder Mausbewegung bzw. jedem
+  // Tastendruck. Ohne Verzögerung wären das Dutzende PATCH-Anfragen für
+  // eine einzige Farbänderung — die Auswahlfelder daneben brauchen das
+  // nicht und schicken weiterhin sofort.
+  function updateItemLater(id, patch) {
+    setDetail((d) => (d && d.id === id ? { ...d, ...patch } : d));
+    clearTimeout(slowPatch.current);
+    slowPatch.current = setTimeout(() => updateItem(id, patch), 400);
   }
 
   async function removeItem(id) {
@@ -1165,14 +1176,35 @@ export default function App() {
                   flagged={flagged("shoeWeight")} onChange={(v) => patchQueue({ shoeWeight: v })}
                 />
               )}
+              {(attrs.category === "Oberteil" || attrs.category === "Jacke") && (
+                <Field
+                  label="Ärmel" value={attrs.sleeve} options={SLEEVES}
+                  flagged={flagged("sleeve")} onChange={(v) => patchQueue({ sleeve: v })}
+                />
+              )}
+              <Field
+                label="Material" value={attrs.material} options={MATERIALS}
+                flagged={flagged("material")} onChange={(v) => patchQueue({ material: v })}
+              />
               <Field
                 label="Dicke" value={attrs.thickness} options={THICKNESS}
                 flagged={flagged("thickness")} onChange={(v) => patchQueue({ thickness: v })}
               />
               <Field
+                label="Oberfläche" value={attrs.texture} options={TEXTURES}
+                flagged={flagged("texture")} onChange={(v) => patchQueue({ texture: v })}
+              />
+              <Field
                 label="Muster" value={attrs.pattern} options={PATTERNS}
                 flagged={flagged("pattern")} onChange={(v) => patchQueue({ pattern: v })}
               />
+              {attrs.pattern && attrs.pattern !== "uni" && (
+                <Field
+                  label="Mustergröße" value={attrs.patternScale} options={PATTERN_SCALE}
+                  flagged={flagged("patternScale")}
+                  onChange={(v) => patchQueue({ patternScale: v })}
+                />
+              )}
             </div>
 
             <div className="mt-4 flex items-center gap-3">
@@ -1198,7 +1230,8 @@ export default function App() {
 
             <p style={{ color: C.faint }} className="mt-4 text-xs leading-relaxed">
               Wärme und Formalität werden aus Art, Material und Dicke berechnet und lassen sich
-              später im Detail überschreiben.
+              später im Detail überschreiben. Das Material entscheidet außerdem mit, ob ein Teil
+              zur Temperatur passt — Leinen im Januar wird abgewertet, Wolle im Hochsommer auch.
             </p>
 
             <div className="mt-6 flex gap-2">
@@ -1320,6 +1353,66 @@ export default function App() {
                   onChange={(v) => updateItem(detail.id, { shoeWeight: v })}
                 />
               )}
+              {(detail.category === "Oberteil" || detail.category === "Jacke") && (
+                <Field
+                  label="Ärmel" value={detail.sleeve} options={SLEEVES}
+                  onChange={(v) => updateItem(detail.id, { sleeve: v })}
+                />
+              )}
+              {/* Material, Dicke, Oberfläche und Mustergröße waren bis
+                  29.08.2026 nur auf der Prüfkarte zu sehen. Wer sie dort
+                  übersehen hatte, kam nie wieder an sie heran — obwohl
+                  die Mustergröße über den harten Ausschluss "zwei laute
+                  Muster" entscheidet. */}
+              <Field
+                label="Material" value={detail.material} options={MATERIALS}
+                onChange={(v) => updateItem(detail.id, { material: v })}
+              />
+              <Field
+                label="Dicke" value={detail.thickness} options={THICKNESS}
+                onChange={(v) => updateItem(detail.id, { thickness: v })}
+              />
+              <Field
+                label="Oberfläche" value={detail.texture} options={TEXTURES}
+                onChange={(v) => updateItem(detail.id, { texture: v })}
+              />
+              <Field
+                label="Muster" value={detail.pattern} options={PATTERNS}
+                onChange={(v) => updateItem(detail.id, { pattern: v })}
+              />
+              {detail.pattern && detail.pattern !== "uni" && (
+                <Field
+                  label="Mustergröße" value={detail.patternScale} options={PATTERN_SCALE}
+                  onChange={(v) => updateItem(detail.id, { patternScale: v })}
+                />
+              )}
+            </div>
+
+            {detail.materialSecondary && (
+              <p style={{ color: C.faint }} className="mt-3 text-xs">
+                Zweitmaterial: {detail.materialSecondary}
+              </p>
+            )}
+
+            <div className="mt-4 flex items-center gap-3">
+              <span
+                style={{ background: detail.colorHex || "#888", borderColor: C.line }}
+                className="w-8 h-8 rounded-full border"
+              />
+              <div className="flex-1">
+                <Label>Farbe</Label>
+                <input
+                  value={detail.colorName || ""}
+                  onChange={(e) => updateItemLater(detail.id, { colorName: e.target.value })}
+                  style={{ background: "transparent", color: C.text, borderColor: C.line }}
+                  className="w-full border-b text-sm pb-1"
+                />
+              </div>
+              <input
+                type="color" value={detail.colorHex || "#888888"}
+                onChange={(e) => updateItemLater(detail.id, { colorHex: e.target.value })}
+                className="w-10 h-10 bg-transparent"
+              />
             </div>
 
             <div className="mt-5">

@@ -2,7 +2,10 @@
 **/dist
 **/__pycache__
 **/*.pyc
-backend/tests
+**/.pytest_cache
+# backend/tests wird gebraucht: die Teststufe im Dockerfile fuehrt die
+# Engine-Tests waehrend des Builds aus. Ins Laufzeit-Image kommen sie
+# nicht, dort wird backend/app einzeln kopiert.
 .env
 .env.*
 !.env.example

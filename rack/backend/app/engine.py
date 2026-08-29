@@ -149,10 +149,120 @@ def hue_gap(a: float, b: float) -> float:
     return 360 - d if d > 180 else d
 
 
+# ── Material ────────────────────────────────────────────────────────────
+#
+# Bis August 2026 war material ein freies Textfeld, das nur ueber einen
+# Substring-Vergleich in WARM_WORDS wirkte. Das ging in zwei Richtungen
+# schief: "Kunstleder" traf "leder" und erbte dessen Waermebonus, und
+# gaengige Materialien wie Cord fehlten in der Liste ganz und zaehlten
+# damit wie Baumwolle. MATERIALS ist jetzt das verbindliche Vokabular,
+# normalize_material() bildet Schreibweisen und Mehrfachangaben darauf ab.
+
+MATERIALS = [
+    "Baumwolle", "Cord", "Denim", "Leinen", "Jersey", "Strick", "Wolle",
+    "Kaschmir", "Fleece", "Daune", "Leder", "Wildleder", "Kunstleder",
+    "Seide", "Satin", "Viskose", "Synthetik", "Mesh",
+]
+
+# Schreibweisen, Fremdwoerter und Handelsnamen auf das Vokabular abbilden.
+# Geprueft wird von den laengsten Begriffen zu den kuerzesten (siehe
+# _MATERIAL_NEEDLES). Das ist keine Kosmetik: "wolle" steckt in
+# "baumwolle", "leder" in "kunstleder" und "wildleder", "strick" in
+# "grobstrick". Wer hier nach Listenreihenfolge sucht, macht aus
+# Bio-Baumwolle Wolle — genau der Substring-Fehler, den diese
+# Umstellung beseitigen soll.
+MATERIAL_SYNONYMS: list[tuple[str, str]] = [
+    ("kunstleder", "Kunstleder"), ("lederimitat", "Kunstleder"),
+    ("veganes leder", "Kunstleder"), ("kunststoffleder", "Kunstleder"),
+    ("wildleder", "Wildleder"), ("veloursleder", "Wildleder"),
+    ("rauleder", "Wildleder"), ("suede", "Wildleder"), ("nubuk", "Wildleder"),
+    ("cord", "Cord"), ("kord", "Cord"), ("corduroy", "Cord"), ("rippsamt", "Cord"),
+    ("denim", "Denim"), ("jeansstoff", "Denim"), ("jeans", "Denim"),
+    ("kaschmir", "Kaschmir"), ("cashmere", "Kaschmir"),
+    ("merino", "Wolle"), ("schurwolle", "Wolle"), ("wolle", "Wolle"),
+    ("walk", "Wolle"), ("tweed", "Wolle"), ("filz", "Wolle"),
+    ("fleece", "Fleece"), ("teddy", "Fleece"), ("sherpa", "Fleece"),
+    ("daune", "Daune"), ("down", "Daune"), ("federn", "Daune"),
+    ("grobstrick", "Strick"), ("feinstrick", "Strick"), ("gestrickt", "Strick"),
+    ("strick", "Strick"),
+    ("leinen", "Leinen"), ("linnen", "Leinen"), ("flachs", "Leinen"),
+    ("seide", "Seide"), ("silk", "Seide"),
+    ("satin", "Satin"),
+    ("viskose", "Viskose"), ("rayon", "Viskose"), ("modal", "Viskose"),
+    ("lyocell", "Viskose"), ("tencel", "Viskose"), ("bambus", "Viskose"),
+    ("mesh", "Mesh"), ("netz", "Mesh"),
+    ("jersey", "Jersey"), ("sweat", "Jersey"), ("frottee", "Jersey"),
+    ("polyester", "Synthetik"), ("nylon", "Synthetik"), ("polyamid", "Synthetik"),
+    ("elasthan", "Synthetik"), ("acryl", "Synthetik"), ("kunstfaser", "Synthetik"),
+    ("synthetik", "Synthetik"), ("synthetisch", "Synthetik"),
+    ("softshell", "Synthetik"), ("gore-tex", "Synthetik"), ("goretex", "Synthetik"),
+    ("baumwolle", "Baumwolle"), ("cotton", "Baumwolle"), ("popeline", "Baumwolle"),
+    ("canvas", "Baumwolle"), ("twill", "Baumwolle"), ("musselin", "Baumwolle"),
+    ("leder", "Leder"),
+]
+
+_MATERIAL_LOOKUP = {m.lower(): m for m in MATERIALS}
+_MATERIAL_SPLIT = re.compile(r"[/,;+&]| und | mit ")
+# Laengster Begriff zuerst, damit ein spezifischer Treffer einen
+# allgemeineren Teilstring immer schlaegt.
+_MATERIAL_NEEDLES = sorted(MATERIAL_SYNONYMS, key=lambda p: -len(p[0]))
+
+
+def normalize_material(value: Any) -> str | None:
+    """Freitext auf das MATERIALS-Vokabular abbilden.
+
+    Nimmt auch Mehrfachangaben wie "Wildleder/Mesh" entgegen und liefert
+    das erste erkannte Material. Unbekanntes ergibt None statt eines
+    Rateversuchs — ein leeres Feld ist ehrlicher als ein falscher Bonus.
+    """
+    if not value:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text in _MATERIAL_LOOKUP:
+        return _MATERIAL_LOOKUP[text]
+    parts = [p.strip() for p in _MATERIAL_SPLIT.split(text) if p.strip()]
+    for candidate in [*parts, text]:
+        if candidate in _MATERIAL_LOOKUP:
+            return _MATERIAL_LOOKUP[candidate]
+        for needle, target in _MATERIAL_NEEDLES:
+            if needle in candidate:
+                return target
+    return None
+
+
+def split_materials(value: Any) -> tuple[str | None, str | None]:
+    """Zerlegt "Wildleder/Mesh" in Haupt- und Nebenmaterial."""
+    if not value:
+        return None, None
+    parts = [p.strip() for p in _MATERIAL_SPLIT.split(str(value)) if p.strip()]
+    seen: list[str] = []
+    for part in parts or [str(value)]:
+        m = normalize_material(part)
+        if m and m not in seen:
+            seen.append(m)
+    if not seen:
+        return normalize_material(value), None
+    return seen[0], (seen[1] if len(seen) > 1 else None)
+
+
+# Waermebeitrag je Material. Die elf urspruenglichen Eintraege sind
+# unveraendert aus rack.jsx uebernommen; ergaenzt wurden nur Materialien,
+# die vorher gar nicht vorkamen und deshalb wie Baumwolle zaehlten
+# (Freigabe 29.08.2026).
 WARM_WORDS = {
     "wolle": 1.4, "kaschmir": 1.4, "fleece": 1.3, "daune": 2, "strick": 1,
     "leder": 0.6, "denim": 0.4, "baumwolle": 0, "jersey": 0,
     "leinen": -0.6, "seide": -0.4,
+    # Ergaenzt 29.08.2026
+    "cord": 0.7,        # geripptes Gewebe, spuerbar waermer als glatte Baumwolle
+    "wildleder": 0.6,   # wie Leder; stand vorher nur zufaellig ueber "leder" drin
+    "kunstleder": 0.3,  # winddicht, aber duenner und ohne die Fasermasse
+    "satin": -0.3,      # glatt und kuehl, knapp ueber Seide
+    "viskose": -0.2,    # faellt kuehl, weniger extrem als Leinen
+    "synthetik": 0.1,   # Polyester und Co. isolieren leicht, aber kaum
+    "mesh": -0.8,       # bewusst luftdurchlaessig
 }
 
 FORMAL_HINTS = [
@@ -176,11 +286,12 @@ def derive(a: Item) -> dict[str, float]:
     ist bedeutsam: der letzte Treffer gewinnt, genau wie in rack.jsx.
     """
     th = max(0, _index_of(THICKNESS, a.get("thickness")))
-    mat = str(a.get("material") or "").lower()
-    bonus = 0.0
-    for key in WARM_WORDS:
-        if key in mat:
-            bonus = WARM_WORDS[key]
+    # Seit 29.08.2026 ueber das Vokabular statt per Substring-Suche: frueher
+    # gewann hier der letzte Treffer der Schleife, weshalb "Bio-Baumwolle"
+    # ueber das Teilwort "wolle" den Wollbonus bekam und Cord gar keinen.
+    material = normalize_material(a.get("material"))
+    bonus = WARM_WORDS.get(material.lower(), 0.0) if material else 0.0
+    mat = (material or str(a.get("material") or "")).lower()
 
     cat = a.get("category")
     if cat == "Jacke":
@@ -356,6 +467,77 @@ def s_texture(parts: list[Item]) -> float:
     return 0.88 if u >= 3 else 1
 
 
+# Materialien, die nur in ihrer Jahreszeit ueberzeugen. Das ist bewusst
+# knapp gehalten: nur Stoffe, bei denen die Fehlbesetzung offensichtlich
+# ist. Ein Baumwollhemd ist ganzjaehrig richtig und steht deshalb hier
+# nicht.
+SOMMER_MATERIAL = {"Leinen", "Mesh"}
+WINTER_MATERIAL = {"Wolle", "Kaschmir", "Fleece", "Daune"}
+
+# Materialien mit starkem Eigencharakter. Zweimal dasselbe davon in einem
+# Outfit liest sich als Anzug aus einem Stoff — Cord auf Cord, Leder auf
+# Leder. Baumwolle und Denim fehlen hier absichtlich: Jeans zum
+# Baumwollshirt ist der Normalfall, nicht der Fehler.
+PRAEGNANTES_MATERIAL = {"Cord", "Leder", "Wildleder", "Kunstleder",
+                        "Fleece", "Daune", "Satin", "Seide"}
+GLAENZENDES_MATERIAL = {"Satin", "Seide"}
+
+
+def materials_of(parts: list[Item]) -> list[str]:
+    """Normalisierte Materialien der tragenden Teile, Accessoires ausgenommen.
+
+    Accessoires bleiben draussen, weil ein Lederguertel zur Lederjacke
+    kein Stilfehler ist — der Guertel ist Beiwerk, keine Flaeche.
+    """
+    out = []
+    for p in parts:
+        if is_acc(p):
+            continue
+        m = normalize_material(p.get("material"))
+        if m:
+            out.append(m)
+    return out
+
+
+def s_material(parts: list[Item], t: float) -> float:
+    """Passt der Stoff zur Temperatur und zu den anderen Stoffen?
+
+    Neu am 29.08.2026 (Freigabe des Auftraggebers). Bewusst nur ein
+    weiches Kriterium: es sortiert Vorschlaege um, schliesst aber nichts
+    aus. violates() bleibt unberuehrt, damit kein Outfit verschwindet,
+    nur weil ein Material unbekannt oder grenzwertig ist.
+
+    Ohne erkanntes Material gibt es 0.85 — denselben neutralen Wert, den
+    s_texture bei zu duenner Datenlage liefert. Ein Teil ohne Materialangabe
+    darf ein Outfit weder retten noch versenken.
+    """
+    mats = materials_of(parts)
+    if not mats:
+        return 0.85
+
+    s = 1.0
+    for m in mats:
+        if m in SOMMER_MATERIAL:
+            if t < 12:
+                s = min(s, 0.45)
+            elif t < 18:
+                s = min(s, 0.75)
+        if m in WINTER_MATERIAL:
+            if t > 24:
+                s = min(s, 0.45)
+            elif t > 20:
+                s = min(s, 0.75)
+
+    praegnant = [m for m in mats if m in PRAEGNANTES_MATERIAL]
+    if len(praegnant) != len(set(praegnant)):
+        s *= 0.72
+
+    if len([m for m in mats if m in GLAENZENDES_MATERIAL]) >= 2:
+        s *= 0.8
+
+    return max(0.0, min(1.0, s))
+
+
 def s_shoes(shoe: Item, bottom: Item) -> float:
     w = _or(shoe.get("shoeWeight"), "normal")
     v = vol(bottom)
@@ -461,11 +643,19 @@ def fb_factor(parts: list[Item], fb: dict) -> float:
     return min(f, 1.4)
 
 
-W = {"silhouette": 0.23, "proportion": 0.15, "color": 0.16, "warmth": 0.15,
-     "formality": 0.12, "shoes": 0.09, "pattern": 0.06, "texture": 0.04}
+# Gewichte. Am 29.08.2026 kam "material" mit 0.05 dazu (Freigabe des
+# Auftraggebers). Die fuenf Punkte wurden den groessten Posten entnommen,
+# damit die Rangfolge der bestehenden Kriterien erhalten bleibt:
+# silhouette 0.23->0.22, proportion 0.15->0.14, color 0.16->0.15,
+# warmth 0.15->0.14, formality 0.12->0.11; shoes, pattern und texture
+# blieben unangetastet. Beide Saetze summieren sich weiterhin auf 1.0.
+W = {"silhouette": 0.22, "proportion": 0.14, "color": 0.15, "warmth": 0.14,
+     "formality": 0.11, "shoes": 0.09, "pattern": 0.06, "texture": 0.04,
+     "material": 0.05}
 # Ohne Silhouettenvorgabe traegt die Passung zur Statur das Gewicht.
-W_OPEN = {"silhouette": 0.08, "proportion": 0.30, "color": 0.16, "warmth": 0.15,
-          "formality": 0.12, "shoes": 0.09, "pattern": 0.06, "texture": 0.04}
+W_OPEN = {"silhouette": 0.08, "proportion": 0.28, "color": 0.15, "warmth": 0.14,
+          "formality": 0.11, "shoes": 0.09, "pattern": 0.06, "texture": 0.04,
+          "material": 0.05}
 
 
 def _find(parts: list[Item], pred) -> Item | None:
@@ -516,6 +706,7 @@ def score(parts: list[Item], ctx: dict, now_ms: float | None = None) -> dict:
         "shoes": s_shoes(shoe, bottom) if (shoe and bottom) else 0.85,
         "pattern": s_pattern(parts),
         "texture": s_texture(parts),
+        "material": s_material(parts, ctx["temp"]),
     }
     weights = W_OPEN if ctx["mode"] == "offen" else W
     total = sum(weights[k] * sub[k] for k in weights)

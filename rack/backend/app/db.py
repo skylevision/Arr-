@@ -9,6 +9,7 @@ hier, damit kein Aufrufer beide Formen kennen muss.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 import uuid
@@ -16,6 +17,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .config import settings
+
+log = logging.getLogger("rack.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS items (
@@ -28,6 +31,7 @@ CREATE TABLE IF NOT EXISTS items (
   pattern         TEXT,
   pattern_scale   TEXT,
   material        TEXT,
+  material_secondary TEXT,
   thickness       TEXT,
   texture         TEXT,
   fit             TEXT,
@@ -89,6 +93,7 @@ FIELDS = [
     ("subcategory", "subcategory"), ("color_hex", "colorHex"),
     ("color_name", "colorName"), ("pattern", "pattern"),
     ("pattern_scale", "patternScale"), ("material", "material"),
+    ("material_secondary", "materialSecondary"),
     ("thickness", "thickness"), ("texture", "texture"), ("fit", "fit"),
     ("length", "length"), ("rise", "rise"), ("sleeve", "sleeve"),
     ("shoe_weight", "shoeWeight"), ("warmth", "warmth"),
@@ -126,10 +131,90 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+# Nachtraeglich hinzugekommene Spalten. SCHEMA legt nur an, was noch
+# nicht existiert ("CREATE TABLE IF NOT EXISTS") — auf einer bestehenden
+# Datenbank aendert es nichts. Ohne diese Liste wuerde jede neue Spalte
+# beim naechsten Start zu "no such column" fuehren, und zwar erst im
+# laufenden Betrieb, nicht beim Deployment.
+#
+# Regeln fuer Eintraege: nur additiv (ADD COLUMN), immer NULL-faehig oder
+# mit DEFAULT, nie umbenennen oder loeschen. SQLite kann ADD COLUMN ohne
+# Tabellenkopie, das laeuft auch auf grossen Bestaenden sofort durch.
+MIGRATIONS: list[tuple[str, str, str]] = [
+    # (Tabelle, Spalte, Deklaration)
+    ("items", "material_secondary", "TEXT"),
+]
+
+
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def migrate(conn: sqlite3.Connection) -> list[str]:
+    """Fehlende Spalten ergaenzen. Idempotent, gibt das Getane zurueck."""
+    done: list[str] = []
+    for table, column, decl in MIGRATIONS:
+        if not conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (table,)).fetchone():
+            continue
+        if column in _columns(conn, table):
+            continue
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        done.append(f"{table}.{column}")
+    return done
+
+
+def backfill_materials(conn: sqlite3.Connection) -> int:
+    """Bestehende Materialangaben auf das Vokabular bringen.
+
+    Vor dem 29.08.2026 war material ein Freitextfeld; im Bestand stehen
+    Werte wie "Wildleder/Mesh", die kein Auswahlfeld anzeigen kann. Diese
+    Migration schreibt den normalisierten Hauptwert zurueck und legt ein
+    erkanntes Zweitmaterial in der neuen Spalte ab.
+
+    Idempotent: was schon zum Vokabular passt und kein Zweitmaterial
+    verbirgt, wird nicht angefasst. Nicht zuordenbare Angaben bleiben
+    unveraendert stehen, statt still geloescht zu werden — dann sieht man
+    sie in der Oberflaeche als "nicht gesetzt" und kann sie von Hand
+    korrigieren.
+    """
+    from .engine import split_materials
+
+    geaendert = 0
+    for row in conn.execute(
+            "SELECT id, material, material_secondary FROM items").fetchall():
+        roh = row["material"]
+        if not roh:
+            continue
+        haupt, zweit = split_materials(roh)
+        if haupt is None:
+            # Nicht zuordenbar: stehen lassen, damit es sichtbar bleibt.
+            continue
+        bestand_zweit = row["material_secondary"] or None
+        # Ein bereits abgelegtes Zweitmaterial nur ersetzen, wenn der
+        # Rohwert selbst eines enthaelt. Sonst wuerde der zweite Lauf
+        # loeschen, was der erste gerade angelegt hat.
+        neu_zweit = zweit if zweit is not None else bestand_zweit
+        if roh == haupt and neu_zweit == bestand_zweit:
+            continue
+        conn.execute(
+            "UPDATE items SET material = ?, material_secondary = ? WHERE id = ?",
+            (haupt, neu_zweit, row["id"]))
+        geaendert += 1
+    return geaendert
+
+
 def init() -> None:
     conn = connect()
     with conn:
         conn.executescript(SCHEMA)
+        applied = migrate(conn)
+        umgestellt = backfill_materials(conn)
+    if applied:
+        log.info("Schema ergaenzt: %s", ", ".join(applied))
+    if umgestellt:
+        log.info("Materialangaben normalisiert: %d Teile", umgestellt)
 
 
 # ── Umsetzung zwischen Zeile und Objekt ─────────────────────────────────

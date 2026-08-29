@@ -39,7 +39,12 @@ services:
       - RACK_MODEL_VISION=${RACK_MODEL_VISION:-claude-sonnet-5}
       - RACK_MODEL_CURATE=${RACK_MODEL_CURATE:-claude-sonnet-5}
       - RACK_TREND_MAX_AGE_DAYS=${RACK_TREND_MAX_AGE_DAYS:-30}
-      - RACK_MAX_IMAGE_DIM=${RACK_MAX_IMAGE_DIM:-1000}
+      # Ablage-/Anzeigegroesse. Getrennt von der Fassung, die an die
+      # Vision-API geht: Claude Sonnet 5 verarbeitet bis 2576 Pixel auf
+      # der langen Kante, und Material erkennt man nur mit genug
+      # Aufloesung — Cordrippen sind bei 1000 Pixel nicht mehr da.
+      - RACK_MAX_IMAGE_DIM=${RACK_MAX_IMAGE_DIM:-1400}
+      - RACK_MODEL_IMAGE_DIM=${RACK_MODEL_IMAGE_DIM:-2000}
       - RACK_CUTOUT=${RACK_CUTOUT:-1}
 
     volumes:

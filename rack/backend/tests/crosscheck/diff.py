@@ -1,10 +1,42 @@
+"""Vergleicht den Python-Port mit dem Original rack.jsx.
+
+Seit dem 29.08.2026 weicht der Port an einer Stelle absichtlich ab: das
+Material zaehlt mit (Freigabe des Auftraggebers, siehe README). Diese
+Abweichungen sind erwartet und werden getrennt ausgewiesen, damit die
+Gegenprobe fuer alles Uebrige scharf bleibt — violates(), die
+Farbmathematik, Silhouette, Proportion, Muster und Schuhe pruefen sich
+weiterhin gegen das Original.
+
+Was bewusst abweicht:
+  score.sub.material  gibt es in rack.jsx nicht
+  score.total         andere Gewichte, weil material 0.05 bekommen hat
+  picks.total         Folge davon
+  derive.warmth       Vokabular statt Substring-Suche; betrifft nur
+                      Materialien, die rack.jsx falsch zuordnete
+                      ("Bio-Baumwolle" -> Wolle) oder gar nicht kannte
+"""
+
 import json
 import math
+import re
 
 a = json.load(open("mine.json", encoding="utf-8"))
 b = json.load(open("theirs.json", encoding="utf-8"))
 EPS = 1e-9
 diffs = []
+erwartet = []
+
+# Pfade, an denen die Abweichung gewollt ist.
+ERWARTET = [
+    re.compile(r"^score\[\d+\]\[\d+\]\.sub\.material$"),
+    re.compile(r"^score\[\d+\]\[\d+\]\.total$"),
+    re.compile(r"^picks\[\d+\]\.picks\[\d+\]\.total$"),
+    re.compile(r"^derive\[\d+\]\.warmth$"),
+]
+
+
+def gewollt(path: str) -> bool:
+    return any(r.match(path) for r in ERWARTET)
 
 
 def cmp(pa, pb, path):
@@ -13,7 +45,7 @@ def cmp(pa, pb, path):
         if math.isnan(pa) and math.isnan(pb):
             return
         if abs(pa - pb) > EPS:
-            diffs.append((path, pa, pb))
+            (erwartet if gewollt(path) else diffs).append((path, pa, pb))
         return
     if isinstance(pa, dict) and isinstance(pb, dict):
         for k in set(pa) | set(pb):
@@ -22,7 +54,8 @@ def cmp(pa, pb, path):
                 # null. Das ist dieselbe Aussage, keine Abweichung.
                 if pa.get(k) is None and pb.get(k) is None:
                     continue
-                diffs.append((path + "." + k, pa.get(k, "<fehlt>"), pb.get(k, "<fehlt>")))
+                eintrag = (path + "." + k, pa.get(k, "<fehlt>"), pb.get(k, "<fehlt>"))
+                (erwartet if gewollt(eintrag[0]) else diffs).append(eintrag)
             else:
                 cmp(pa[k], pb[k], path + "." + k)
     elif isinstance(pa, list) and isinstance(pb, list):
@@ -44,9 +77,12 @@ print(f"topPicks    : {len(a['picks'])} Schraenke, {sum(len(p['picks']) for p in
 print(f"analyseGaps : {len(a['gaps'])} Schraenke")
 print(f"violates    : {len(a['violates'])} Faelle")
 print("---")
+if erwartet:
+    print(f"{len(erwartet)} erwartete Abweichungen (Material, siehe Kopf dieser Datei)")
 if not diffs:
-    print("IDENTISCH: keine Abweichung zwischen dem Python-Port und rack.jsx")
+    print("IDENTISCH: keine unerwartete Abweichung zwischen dem Python-Port und rack.jsx")
 else:
-    print(f"{len(diffs)} ABWEICHUNGEN, erste 25:")
+    print(f"{len(diffs)} UNERWARTETE ABWEICHUNGEN, erste 25:")
     for d in diffs[:25]:
         print("  ", d)
+raise SystemExit(1 if diffs else 0)

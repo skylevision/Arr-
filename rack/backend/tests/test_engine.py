@@ -486,3 +486,130 @@ def test_leerer_schrank_bringt_die_analyse_nicht_um():
     assert res["guteOutfits"] == 0
     assert res["waisen"] == []
     assert all(k["neueOutfits"] == 0 for k in res["kandidaten"])
+
+
+# ── Material ────────────────────────────────────────────────────────────
+#
+# Ergaenzt am 29.08.2026 zusammen mit dem Material-Vokabular. Die Tests
+# halten fest, was die Substring-Suche vorher falsch gemacht hat, damit
+# niemand versehentlich dorthin zurueckfaellt.
+
+def test_material_vokabular_deckt_alle_waermewerte_ab():
+    """Jedes Material im Vokabular braucht einen Waermebeitrag.
+
+    Sonst zaehlt es stillschweigend wie Baumwolle - genau der Zustand,
+    in dem Cord vor der Umstellung war.
+    """
+    fehlend = [m for m in e.MATERIALS if m.lower() not in e.WARM_WORDS]
+    assert fehlend == []
+
+
+@pytest.mark.parametrize("roh, erwartet", [
+    ("Cord", "Cord"), ("KORD", "Cord"), ("corduroy", "Cord"),
+    ("Baumwolle", "Baumwolle"), ("cotton", "Baumwolle"),
+    ("Polyester", "Synthetik"), ("Nylon", "Synthetik"),
+    ("Merinowolle", "Wolle"), ("Grobstrick", "Strick"),
+    ("Jeansstoff", "Denim"),
+    ("Quatschstoff", None), ("", None), (None, None),
+])
+def test_material_normalisierung(roh, erwartet):
+    assert e.normalize_material(roh) == erwartet
+
+
+@pytest.mark.parametrize("roh, erwartet", [
+    # Der Fehler, um den es geht: "wolle" steckt in "baumwolle",
+    # "leder" in "kunstleder" und "wildleder".
+    ("Bio-Baumwolle", "Baumwolle"),
+    ("Kunstleder", "Kunstleder"),
+    ("Wildleder", "Wildleder"),
+])
+def test_material_faellt_nicht_auf_teilwoerter_herein(roh, erwartet):
+    assert e.normalize_material(roh) == erwartet
+
+
+def test_mehrfachmaterial_wird_zerlegt():
+    assert e.split_materials("Wildleder/Mesh") == ("Wildleder", "Mesh")
+    assert e.split_materials("Wolle mit Kaschmir") == ("Wolle", "Kaschmir")
+    assert e.split_materials("Baumwolle") == ("Baumwolle", None)
+
+
+def test_kunstleder_erbt_nicht_mehr_den_lederbonus():
+    """Frueher traf der Substring "leder" auch in "Kunstleder" und gab
+    ihm denselben Bonus von 0.6.
+
+    Geprueft wird am Rohwert und zusaetzlich an einer duennen Jacke:
+    derive() rundet auf halbe Schritte, bei mittlerer Dicke faellt der
+    Unterschied von 0.3 deshalb in dieselbe Stufe.
+    """
+    assert e.WARM_WORDS["kunstleder"] < e.WARM_WORDS["leder"]
+    echt = e.derive(item(category="Jacke", material="Leder", thickness="dünn"))
+    kunst = e.derive(item(category="Jacke", material="Kunstleder", thickness="dünn"))
+    assert echt["warmth"] > kunst["warmth"]
+
+
+def test_cord_ist_waermer_als_baumwolle():
+    cord = e.derive(item(category="Unterteil", material="Cord", thickness="mittel"))
+    bw = e.derive(item(category="Unterteil", material="Baumwolle", thickness="mittel"))
+    assert cord["warmth"] > bw["warmth"]
+
+
+def test_wollpullover_behaelt_seinen_waermewert():
+    """Der Wert aus dem Briefing (Abschnitt 5) darf sich nicht verschoben
+    haben, obwohl die Materialsuche darunter ausgetauscht wurde."""
+    vorher = e.derive(item(category="Oberteil", material="wolle",
+                           thickness="dick", sleeve="lang"))
+    nachher = e.derive(item(category="Oberteil", material="Wolle",
+                            thickness="dick", sleeve="lang"))
+    assert vorher == nachher
+
+
+def test_s_material_wertet_leinen_im_winter_ab():
+    leinen = [item(material="Leinen")]
+    assert e.s_material(leinen, 4) < e.s_material(leinen, 26)
+    assert e.s_material(leinen, 4) == pytest.approx(0.45)
+
+
+def test_s_material_wertet_wolle_im_hochsommer_ab():
+    wolle = [item(material="Wolle")]
+    assert e.s_material(wolle, 27) == pytest.approx(0.45)
+    assert e.s_material(wolle, 5) == pytest.approx(1.0)
+
+
+def test_s_material_daempft_cord_auf_cord():
+    doppelt = [item(material="Cord"), item(id="b", category="Unterteil", material="Cord")]
+    gemischt = [item(material="Cord"), item(id="b", category="Unterteil", material="Baumwolle")]
+    assert e.s_material(doppelt, 16) == pytest.approx(0.72)
+    assert e.s_material(gemischt, 16) == pytest.approx(1.0)
+
+
+def test_s_material_haelt_jeans_zum_shirt_fuer_normal():
+    """Denim und Baumwolle sind bewusst nicht 'praegnant' - der haeufigste
+    Alltagsfall darf nicht abgewertet werden."""
+    alltag = [item(material="Baumwolle"), item(id="b", category="Unterteil", material="Denim")]
+    assert e.s_material(alltag, 16) == pytest.approx(1.0)
+
+
+def test_s_material_ohne_angabe_ist_neutral():
+    assert e.s_material([item(material=None)], 16) == pytest.approx(0.85)
+    assert e.s_material([], 16) == pytest.approx(0.85)
+
+
+def test_material_ignoriert_accessoires():
+    """Lederguertel zur Lederjacke ist kein Stilfehler."""
+    parts = [item(category="Jacke", material="Leder"),
+             item(id="g", category="Accessoire", subcategory="Gürtel", material="Leder")]
+    assert e.s_material(parts, 16) == pytest.approx(1.0)
+
+
+def test_gewichte_summieren_sich_auf_eins():
+    assert sum(e.W.values()) == pytest.approx(1.0)
+    assert sum(e.W_OPEN.values()) == pytest.approx(1.0)
+    assert e.W["material"] == 0.05 and e.W_OPEN["material"] == 0.05
+
+
+def test_material_ist_kein_harter_ausschluss():
+    """s_material sortiert um, verbietet aber nichts - sonst verschwaenden
+    Outfits, nur weil ein Material unbekannt ist."""
+    parts = [item(material="Leinen"), item(id="b", category="Unterteil", material="Leinen"),
+             item(id="s", category="Schuhe", material="Leder", warmth=1)]
+    assert e.violates(parts, ctx(temp=2), 0) != "Material"

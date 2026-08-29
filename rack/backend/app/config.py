@@ -32,7 +32,22 @@ class Settings:
 
         self.trend_max_age_days = int(_env("RACK_TREND_MAX_AGE_DAYS", "30"))
         self.weather_cache_minutes = int(_env("RACK_WEATHER_CACHE_MINUTES", "30"))
-        self.max_image_dim = int(_env("RACK_MAX_IMAGE_DIM", "1000"))
+        # Zwei Groessen, weil sie zwei verschiedene Zwecke haben.
+        #
+        # max_image_dim ist die Fassung, die im Volume landet und in der
+        # App angezeigt wird. 1400 statt der frueheren 1000 kostet auf
+        # der NVMe nichts und laesst die Freistellungskante sauberer
+        # aussehen.
+        #
+        # model_image_dim geht an die Vision-API. Claude Sonnet 5
+        # verarbeitet bis 2576 Pixel auf der langen Kante — alles
+        # darueber skaliert die API selbst herunter, das waere also nur
+        # Upload und CPU ohne Gegenwert. 2000 liegt bewusst darunter:
+        # genug Aufloesung, um Cordrippen von glatter Baumwolle und
+        # Grobstrick von Feinstrick zu unterscheiden, ohne die
+        # Bildtokens (und damit die Kosten je Foto) voll auszureizen.
+        self.max_image_dim = int(_env("RACK_MAX_IMAGE_DIM", "1400"))
+        self.model_image_dim = int(_env("RACK_MODEL_IMAGE_DIM", "2000"))
         self.cutout = _env("RACK_CUTOUT", "1") != "0"
 
     @property

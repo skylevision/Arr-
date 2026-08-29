@@ -123,6 +123,13 @@ Als Nachtsicherung eingerichtet werden kann das Skript über die Unraid-Oberflä
 Settings, User Scripts — bewusst nicht automatisch eingetragen, das ist deine
 Entscheidung.
 
+Seit dem 29.08.2026 erfasst zusätzlich das zentrale `scripts/backup-appdata.sh` des
+arr-stack den Ordner `rack` mit. Es stoppt dafür auch das rack-Compose-Projekt und macht
+vorher einen `wal_checkpoint(TRUNCATE)`. Hintergrund: SQLite hält im WAL-Modus frische
+Daten in `rack.sqlite3-wal`, die Hauptdatei kann dabei fast leer sein — hier waren es
+4 KB gegen 770 KB WAL. Ein `tar` über beide Dateien ist vollständig, aber wer sich später
+nur `rack.sqlite3` herauskopiert, hätte eine leere Datenbank in der Hand.
+
 ---
 
 ## Aktualisieren
@@ -147,7 +154,7 @@ Aktualisieren heißt: Version dort hochsetzen, neu bauen, committen.
 
 ```
 rack/
-  Dockerfile              dreistufig: Frontend bauen, Abhängigkeiten und Modell, Laufzeit
+  Dockerfile              vierstufig: Frontend, Abhängigkeiten und Modell, Tests, Laufzeit
   docker-compose.yml      eigenes Projekt, bewusst getrennt vom arr-stack
   docker-entrypoint.sh    Umask, Verzeichnisse, Modell spiegeln, auf PUID:PGID wechseln
   .env                    Schlüssel und Konfiguration, Rechte 600, nicht im Git
@@ -166,6 +173,20 @@ rack/
 
 **Ein Container, ein Prozess.** FastAPI liefert die API und das kompilierte Frontend aus,
 Logs gehen nach stdout.
+
+**Zwei Bildgrößen, zwei Zwecke.** `RACK_MAX_IMAGE_DIM` (1400) ist die Fassung, die im
+Volume liegt und in der App erscheint. `RACK_MODEL_IMAGE_DIM` (2000) geht an die
+Vision-API. Die Trennung kostet einen zweiten Encode und spart die schlechtere
+Alternative: entweder ein grobes Bild für die Erkennung oder ein unnötig großes in der
+Ablage. Freigestellt wird nur einmal, auf der größeren Fassung — rembg ist der teure
+Teil, und auf dem N150 will man ihn nicht doppelt.
+
+Warum nicht einfach unkomprimiert? Weil die Grenze nicht vom Speicherplatz kommt, sondern
+von der API: **Claude Sonnet 5 verarbeitet 2576 Pixel auf der langen Kante.** Alles
+darüber skaliert die API selbst herunter — das wäre nur Upload und CPU ohne Gegenwert.
+Umgekehrt waren die vorherigen 1000 Pixel zu wenig: Cordrippen, Grobstrick und
+Leinenstruktur sind genau die Merkmale, an denen die Materialerkennung hängt, und die
+verschwinden als erstes beim Verkleinern.
 
 **Wärme und Formalität werden gerechnet, nie vom Modell geschätzt.** Wer einen Wert im
 Detail von Hand verschiebt, setzt damit ein Merkzeichen; ab dann wird dieser Wert nicht
@@ -193,10 +214,43 @@ der Dateiname landet in keinem Log.
 
 ### Die Engine
 
-Die Fachlogik ist aus `rack.jsx` übernommen, ohne inhaltliche Änderungen: `derive()`, die
-Farbmathematik, alle Einzelbewertungen, die Gewichtungen `W` und `W_OPEN`, der
-Feedbackfaktor, die harten Ausschlüsse in `violates()` samt gestufter Lockerung und die
-Lückenanalyse mit dem Kandidatenkatalog.
+Die Fachlogik ist aus `rack.jsx` übernommen: `derive()`, die Farbmathematik, alle
+Einzelbewertungen, die Gewichtungen `W` und `W_OPEN`, der Feedbackfaktor, die harten
+Ausschlüsse in `violates()` samt gestufter Lockerung und die Lückenanalyse mit dem
+Kandidatenkatalog.
+
+Eine inhaltliche Erweiterung gibt es seit dem 29.08.2026, auf ausdrückliche Freigabe:
+das Material zählt jetzt mit (siehe nächster Abschnitt). Alles andere ist unverändert.
+
+#### Material
+
+Bis August 2026 war `material` ein freies Textfeld. Es wirkte an genau einer Stelle: einer
+Substring-Suche in `WARM_WORDS` für die Wärme. Das ging in beide Richtungen schief —
+„Bio-Baumwolle" traf das Teilwort „wolle" und bekam den Wollbonus, „Kunstleder" erbte den
+Wert von echtem Leder, und Cord stand gar nicht in der Liste und zählte damit wie ein
+T-Shirt. In der Oberfläche war das Feld überhaupt nicht zu sehen.
+
+Jetzt gilt:
+
+| | |
+|---|---|
+| Vokabular | `engine.MATERIALS`, achtzehn Werte von Baumwolle bis Mesh. Das Frontend spiegelt die Liste in `constants.js`. |
+| Normalisierung | `normalize_material()` bildet Schreibweisen, Fremdwörter und Handelsnamen ab (`corduroy`, `KORD`, `merino`, `polyester` …). Geprüft wird vom längsten Begriff zum kürzesten — sonst gewinnt „wolle" gegen „baumwolle". |
+| Mehrfachangaben | `split_materials()` zerlegt „Wildleder/Mesh" in Haupt- und Zweitmaterial (`material_secondary`). |
+| Unbekanntes | wird zu `null` statt geraten, und landet auf der Prüfkarte unter „unsicher". |
+| Wärme | jedes Material im Vokabular hat einen Eintrag in `WARM_WORDS`; ein Test stellt sicher, dass keines fehlt. |
+| Bewertung | `s_material()` mit Gewicht 0.05 — prüft Saison (Leinen im Winter, Wolle im Hochsommer) und Materialdopplung (Cord auf Cord, zwei glänzende). |
+
+`s_material` ist bewusst **nur ein weiches Kriterium**. `violates()` blieb unberührt: ein
+Outfit verschwindet nie, weil ein Material unbekannt oder grenzwertig ist — es rutscht
+höchstens nach hinten. Ohne erkanntes Material gibt es 0.85, denselben neutralen Wert,
+den `s_texture` bei dünner Datenlage liefert.
+
+Die fünf Gewichtspunkte für `material` kamen von den größten Posten: silhouette
+0.23→0.22, proportion 0.15→0.14, color 0.16→0.15, warmth 0.15→0.14, formality 0.12→0.11.
+Shoes, pattern und texture blieben unangetastet, beide Sätze summieren sich weiter auf 1.0.
+
+#### JavaScript-Semantik
 
 An drei Stellen musste die JavaScript-Semantik ausdrücklich nachgebaut werden, weil
 Python sich sonst anders verhält — jede Stelle ist im Quelltext kommentiert:
@@ -208,6 +262,10 @@ Python sich sonst anders verhält — jede Stelle ist im Quelltext kommentiert:
   anderen Bewertungen führt.
 
 Geprüft wird das zweifach:
+
+Die Tests laufen außerdem **im Docker-Build** (Stufe `tests`): ein Image mit roter Engine
+kann gar nicht erst entstehen, `docker compose build` bricht dann ab. Zur Laufzeit liegen
+weder pytest noch die Tests im Image.
 
 ```bash
 # Unit-Tests, halten die Schwellwerte fest
@@ -222,7 +280,15 @@ python diff.py       # vergleicht jeden Zahlenwert
 ```
 
 Die Gegenprobe füttert 400 `derive`-Fälle, 160 Schränke und knapp 300 `violates`-Fälle
-durch beide Fassungen und vergleicht jeden Zahlenwert. Ergebnis zuletzt: keine Abweichung.
+durch beide Fassungen und vergleicht jeden Zahlenwert.
+
+Seit der Material-Erweiterung weicht der Port an vier Stellen **absichtlich** ab:
+`score.sub.material` gibt es in `rack.jsx` gar nicht, `score.total` und `picks.total`
+folgen den neuen Gewichten, und `derive.warmth` unterscheidet sich genau dort, wo
+`rack.jsx` das Material falsch zuordnete oder nicht kannte. `diff.py` weist diese Fälle
+getrennt als erwartet aus und liefert Exit-Code 1 nur bei **unerwarteten** Abweichungen —
+für alles Übrige (`violates()`, Farbmathematik, Silhouette, Proportion, Muster, Schuhe)
+bleibt die Gegenprobe unverändert scharf.
 
 ---
 
@@ -233,6 +299,8 @@ durch beide Fassungen und vergleicht jeden Zahlenwert. Ergebnis zuletzt: keine A
 | Seite lädt gar nicht | Tailscale auf dem Gerät verbunden? `docker exec tailscale tailscale serve status` muss den Proxy auf `127.0.0.1:8099` zeigen. |
 | „Der Server ist nicht erreichbar" in der App | `docker ps --filter name=rack` — Healthcheck rot? Dann `docker compose logs rack`. |
 | Fotos werden nicht freigestellt | Im Log steht die Ursache mit Meldung. Der Hintergrund bleibt dann stehen, das Teil wird trotzdem gespeichert. |
+| Material bleibt leer / „nicht gesetzt" | Das Modell hat etwas geliefert, das sich keinem Wert aus `MATERIALS` zuordnen ließ. Auf der Prüfkarte steht es dann als unsicher markiert — von Hand auswählen. Kommt ein Material öfter vor, gehört es in `MATERIAL_SYNONYMS` (Backend) und ggf. in `MATERIALS` plus `WARM_WORDS`. |
+| Material wird schlechter erkannt als erwartet | `RACK_MODEL_IMAGE_DIM` prüfen. Unter etwa 1200 Pixel verschwinden Cordrippen und Strickstruktur im Bild. Claude Sonnet 5 verarbeitet bis 2576 Pixel; darüber skaliert die API selbst herunter, das bringt nichts mehr. |
 | Erste Erfassung nach einem Update ist langsam | Normal. Danach etwa ein bis zwei Sekunden pro Foto. rembg ist CPU-lastig, und der N150 hat nicht viel Luft. Zwanzig Teile am Stück belasten den Server spürbar. |
 | „Ohne Schlüssel" steht oben | `ANTHROPIC_API_KEY` in der `.env` ist leer oder wurde nicht übernommen. Nach dem Eintragen `docker compose up -d` — `restart` allein reicht nicht. |
 | Vorschläge ohne Styling-Schritte | Die Kuratierung war nicht erreichbar. Die App zeigt dann die Rangfolge der Engine und schreibt den Grund darunter. |
