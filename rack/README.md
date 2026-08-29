@@ -327,6 +327,52 @@ verurteilt die Liste Neuzugänge.
 Ganzkörperfoto wird dieses **bewusst gespeichert** — das ist der Zweck. Es geht nie an ein
 Modell, sondern nur ins Volume.
 
+#### „Warum wird das nie vorgeschlagen?"
+
+Die häufigste Kritik an Kleiderschrank-Apps ist, dass sie einzelne Stücke stillschweigend
+ignorieren. Rack rechnet mit nachvollziehbaren Regeln, also lässt sich die Frage
+beantworten: `GET /api/items/{id}/diagnose` geht alle Kombinationen mit diesem Teil durch
+und zählt, woran sie scheitern — plus die durchschnittlichen Einzelbewertungen für die
+Fälle, in denen es zwar zulässig ist, aber nie oben landet.
+
+Gezählt wird der **erste** greifende Ausschluss je Kombination, genau der, den
+`violates()` meldet. Ein Outfit kann an mehreren Dingen kranken; für die Frage „was müsste
+ich ändern" zählt das, was zuerst blockiert. Ist das Teil pausiert, eingemottet oder in
+der Wäsche, steht das als eigene Antwort davor — dann liegt es nicht an den Regeln.
+
+#### Regen und Wind
+
+`s_material()` bekommt zusätzlich Niederschlag (mm) und Wind (km/h), beides so, wie
+Open-Meteo es liefert. Bei Regen werden Wildleder, Satin, Seide und Leinen abgewertet,
+bei Wind die durchlässigen Stoffe (Mesh, Leinen, Viskose). Glattes Leder bleibt bewusst
+draußen — es verträgt Nieselregen.
+
+Genommen wird jeweils der größere von Momentan- und Tageswert: ein trockener Vormittag
+soll nicht kaschieren, dass es abends schüttet. **Ohne Angabe sind beide null**, dann
+verhält sich alles exakt wie zuvor — und es war kein neues Gewicht nötig, weil das
+Kriterium „passt der Stoff zur Lage" ohnehin schon existierte.
+
+#### Waschgänge
+
+`GET /api/waschgaenge` gruppiert, was gerade in der Wäsche liegt, nach Pflegehinweis und
+grob nach hell/dunkel. Teile ohne Pflegeangabe stehen getrennt — raten wäre hier die
+falsche Hilfe. Das Etikettfoto (`POST /api/items/{id}/etikett`) ergänzt das: die
+Pflegesymbole liest man im Zweifel lieber ab, als sie aus einer Liste zu erraten.
+
+#### Wiederholungsschutz
+
+`POST /api/wiederholung` sagt, ob dieselbe Zusammenstellung kürzlich schon dran war.
+Gewertet wird nach Überschneidung (ab 60 %), nicht nach exakter Gleichheit: zwei Outfits,
+die sich nur im Gürtel unterscheiden, sind praktisch dasselbe. Ein Treffer beim **selben
+Anlass** wiegt schwerer und wird in der Oberfläche deutlicher angezeigt — es geht um die
+Frage, ob man dieselben Leute zweimal im selben Aufzug trifft.
+
+#### Schlagworte
+
+Frei wählbar statt aus einer Liste, weil feste Kategorien nie ganz passen — auch das eine
+wiederkehrende Kritik an solchen Apps. Gespeichert wird eine Kommaliste, kleingeschrieben
+und ohne Doppelte, damit die Suche zuverlässig trifft.
+
 #### JavaScript-Semantik
 
 An drei Stellen musste die JavaScript-Semantik ausdrücklich nachgebaut werden, weil

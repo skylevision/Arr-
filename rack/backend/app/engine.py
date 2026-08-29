@@ -528,6 +528,14 @@ PRAEGNANTES_MATERIAL = {"Cord", "Leder", "Wildleder", "Kunstleder",
                         "Fleece", "Daune", "Satin", "Seide"}
 GLAENZENDES_MATERIAL = {"Satin", "Seide"}
 
+# Materialien, die Regen schlecht vertragen. Wildleder nimmt Flecken und
+# wird steif, Satin und Seide fleckt, Leinen schlaegt Falten und trocknet
+# langsam. Glattes Leder bleibt bewusst draussen — es vertraegt Nieselregen.
+REGENEMPFINDLICH = {"Wildleder", "Satin", "Seide", "Leinen"}
+
+# Duenne, luftdurchlaessige Stoffe. Bei Wind steht man darin im Zug.
+WINDDURCHLAESSIG = {"Mesh", "Leinen", "Viskose"}
+
 
 def materials_of(parts: list[Item]) -> list[str]:
     """Normalisierte Materialien der tragenden Teile, Accessoires ausgenommen.
@@ -545,7 +553,8 @@ def materials_of(parts: list[Item]) -> list[str]:
     return out
 
 
-def s_material(parts: list[Item], t: float) -> float:
+def s_material(parts: list[Item], t: float, regen: float = 0.0,
+               wind: float = 0.0) -> float:
     """Passt der Stoff zur Temperatur und zu den anderen Stoffen?
 
     Neu am 29.08.2026 (Freigabe des Auftraggebers). Bewusst nur ein
@@ -562,6 +571,20 @@ def s_material(parts: list[Item], t: float) -> float:
         return 0.85
 
     s = 1.0
+
+    # Regen in Millimetern, Wind in km/h — beides so, wie Open-Meteo es
+    # liefert. Die Schwellen sind bewusst grob: bei 2 mm merkt man Regen,
+    # bei 20 km/h zieht es spuerbar.
+    if regen >= 2:
+        stark = regen >= 6
+        for m in mats:
+            if m in REGENEMPFINDLICH:
+                s = min(s, 0.4 if stark else 0.7)
+    if wind >= 20:
+        for m in mats:
+            if m in WINDDURCHLAESSIG:
+                s = min(s, 0.65 if wind >= 35 else 0.8)
+
     for m in mats:
         if m in SOMMER_MATERIAL:
             if t < 12:
@@ -752,7 +775,9 @@ def score(parts: list[Item], ctx: dict, now_ms: float | None = None) -> dict:
         "shoes": s_shoes(shoe, bottom) if (shoe and bottom) else 0.85,
         "pattern": s_pattern(parts),
         "texture": s_texture(parts),
-        "material": s_material(parts, ctx["temp"]),
+        "material": s_material(parts, ctx["temp"],
+                              _or(ctx.get("regen"), 0.0),
+                              _or(ctx.get("wind"), 0.0)),
     }
     weights = W_OPEN if ctx["mode"] == "offen" else W
     total = sum(weights[k] * sub[k] for k in weights)
@@ -821,6 +846,107 @@ def build(items: list[Item], ctx: dict, level: int = 0,
         finish([d])
     out.sort(key=lambda o: o["score"]["raw"], reverse=True)
     return out
+
+
+# ── Diagnose ────────────────────────────────────────────────────────────
+
+def diagnose(items: list[Item], item_id: str, ctx: dict,
+             now_ms: float | None = None) -> dict:
+    """Warum taucht ein Teil nicht in den Vorschlaegen auf?
+
+    Die haeufigste Beschwerde ueber Kleiderschrank-Apps ist, dass sie
+    einzelne Stuecke stillschweigend ignorieren. Rack rechnet mit
+    nachvollziehbaren Regeln, also laesst sich die Frage beantworten:
+    alle Kombinationen mit diesem Teil durchgehen und zaehlen, woran sie
+    scheitern.
+
+    Gezaehlt wird der *erste* greifende Ausschluss je Kombination — genau
+    der, den violates() meldet. Ein Outfit kann an mehreren Dingen
+    kranken; fuer die Frage "was muesste ich aendern" zaehlt das, was
+    zuerst blockiert.
+    """
+    teil = next((i for i in items if i.get("id") == item_id), None)
+    if teil is None:
+        return {"gefunden": False}
+
+    # Nicht verfuegbar ist eine eigene Antwort — dann liegt es nicht an
+    # den Regeln, sondern am Zustand des Teils.
+    sperre = None
+    if teil.get("archived"):
+        sperre = "eingemottet"
+    elif teil.get("paused"):
+        sperre = "pausiert"
+    elif laundry_remaining(teil, now_ms) > 0:
+        sperre = "in der Wäsche"
+
+    andere = [i for i in items
+              if i.get("id") != item_id and is_available(i, now_ms)]
+    kandidat = dict(teil)
+    kandidat["paused"] = False
+    kandidat["archived"] = False
+    kandidat["laundryUntil"] = None
+    schrank = [kandidat, *andere]
+
+    kombis = 0
+    gruende: dict[str, int] = {}
+    beste = 0.0
+    schwaechen: dict[str, float] = {}
+    zulaessig = 0
+
+    def sammle(parts: list[Item]) -> None:
+        nonlocal kombis, beste, zulaessig
+        kombis += 1
+        grund = violates(parts, ctx, 0)
+        if grund:
+            gruende[grund] = gruende.get(grund, 0) + 1
+            return
+        zulaessig += 1
+        sc = score(parts, ctx, now_ms)
+        beste = max(beste, sc["total"])
+        for k, v in sc["sub"].items():
+            if isinstance(v, float) and math.isnan(v):
+                continue
+            schwaechen[k] = schwaechen.get(k, 0.0) + v
+
+    def by(c: str) -> list[Item]:
+        return [i for i in schrank if i.get("category") == c]
+
+    tops, bottoms, dresses = by("Oberteil"), by("Unterteil"), by("Kleid")
+    shoes, outers = by("Schuhe"), by("Jacke")
+    need_outer = ctx["temp"] < 14
+
+    basen: list[list[Item]] = [[t, b] for t in tops for b in bottoms]
+    basen += [[d] for d in dresses]
+    for base in basen:
+        if not any(p.get("id") == item_id for p in base) \
+                and teil.get("category") not in ("Schuhe", "Jacke", "Accessoire"):
+            continue
+        for sh in shoes:
+            for ou in (outers if (need_outer and outers) else [None]):
+                parts = [*base, sh, ou] if ou else [*base, sh]
+                if not any(p.get("id") == item_id for p in parts):
+                    continue
+                sammle(parts)
+
+    # Durchschnittliche Einzelbewertungen der zulaessigen Kombinationen:
+    # zeigt, was das Teil herunterzieht, wenn es gar nicht ausgeschlossen
+    # wird, aber trotzdem nie oben landet.
+    mittel = {k: round(v / zulaessig, 2) for k, v in schwaechen.items()} if zulaessig else {}
+    sortiert = sorted(gruende.items(), key=lambda kv: -kv[1])
+
+    return {
+        "gefunden": True,
+        "name": teil.get("name"),
+        "sperre": sperre,
+        "kombinationen": kombis,
+        "zulaessig": zulaessig,
+        "bestePunkte": round(beste, 3),
+        "gruende": [{"grund": g, "anzahl": n,
+                     "anteil": round(n / kombis, 2) if kombis else 0}
+                    for g, n in sortiert],
+        "schwaechste": sorted(mittel.items(), key=lambda kv: kv[1])[:3],
+        "mittelwerte": mittel,
+    }
 
 
 # ── Packliste ───────────────────────────────────────────────────────────

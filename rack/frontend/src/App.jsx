@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { api, followIngest, followOutfits, imageUrl, setToken, token } from "./api.js";
+import {
+  api, etikettUrl, followIngest, followOutfits, imageUrl, setToken, token,
+} from "./api.js";
 import {
   ACCESSORY_TYPES, BOTTOM_LEN, BUILDS, C, CATEGORIES, DISPLAY, FITS, MATERIALS,
   OCCASIONS, PATTERN_SCALE, PATTERNS, PHOTO_GUIDE, RISES, SANS, SHOE_WEIGHT,
@@ -88,6 +90,9 @@ export default function App() {
   const [packTage, setPackTage] = useState(5);
   const [packTemp, setPackTemp] = useState(16);
   const [ausmisten, setAusmisten] = useState(null);
+  const [diagnose, setDiagnose] = useState(null);
+  const [wiederholungen, setWiederholungen] = useState({});
+  const [waschgaenge, setWaschgaenge] = useState(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -135,6 +140,27 @@ export default function App() {
     setNeedToken(false);
   }, []);
 
+  // Für jeden Vorschlag prüfen, ob dieselbe Zusammenstellung kürzlich
+  // schon einmal dran war — vor allem beim selben Anlass. Läuft still im
+  // Hintergrund; scheitert der Aufruf, fehlt eben der Hinweis.
+  useEffect(() => {
+    if (!outfits?.length) return;
+    let aktuell = true;
+    Promise.all(
+      outfits.map((o) =>
+        api.wiederholung({ teile: o.teile.map((p) => p.id), anlass: occasion })
+          .then((r) => r.warnung)
+          .catch(() => null),
+      ),
+    ).then((res) => {
+      if (!aktuell) return;
+      const map = {};
+      res.forEach((w, i) => { if (w) map[i] = w; });
+      setWiederholungen(map);
+    });
+    return () => { aktuell = false; };
+  }, [outfits, occasion]);
+
   // Pläne und gemerkte Outfits beim Öffnen der Ansicht laden.
   useEffect(() => {
     if (view !== "planen") return;
@@ -143,6 +169,7 @@ export default function App() {
     Promise.all([api.plan(heute, in14), api.gespeicherteOutfits()])
       .then(([p, g]) => { setPlaene(p); setGemerkte(g); })
       .catch((err) => fail(err, "Die Planung war nicht abrufbar."));
+    api.waschgaenge().then(setWaschgaenge).catch(() => {});
   }, [view, fail]);
 
   // Die Bilanz wird bei jedem Aufruf frisch geholt: sie hängt am
@@ -479,7 +506,7 @@ export default function App() {
     const q = suche.trim().toLowerCase();
     if (!q) return true;
     return [it.name, it.brand, it.material, it.materialSecondary, it.colorName,
-            it.category, it.subcategory, it.size]
+            it.category, it.subcategory, it.size, it.tags, it.care]
       .filter(Boolean)
       .some((feld) => String(feld).toLowerCase().includes(q));
   });
@@ -488,6 +515,33 @@ export default function App() {
   function V(key, fallback) {
     const list = vocab?.[key];
     return Array.isArray(list) && list.length ? list : fallback;
+  }
+
+  // Die Diagnose wird beim Öffnen eines Teils geholt. Sie beantwortet
+  // die Frage, die keine der kommerziellen Apps beantwortet: warum taucht
+  // dieses Stück nie in einem Vorschlag auf?
+  useEffect(() => {
+    if (!detail?.id) { setDiagnose(null); return; }
+    let aktuell = true;
+    setDiagnose(null);
+    api.diagnose(detail.id, occasion, temp)
+      .then((d) => { if (aktuell) setDiagnose(d); })
+      .catch(() => {});
+    return () => { aktuell = false; };
+  }, [detail?.id, occasion, temp]);
+
+  async function etikettHochladen(id, file) {
+    if (!file) return;
+    setBusy("Speichere das Etikett");
+    try {
+      const res = await api.etikettHochladen(id, file);
+      setItems((list) => list.map((i) => (i.id === id ? { ...i, labelPath: res.labelPath } : i)));
+      setDetail((d) => (d && d.id === id ? { ...d, labelPath: res.labelPath } : d));
+      setNotice("Etikettfoto gespeichert.");
+    } catch (err) {
+      fail(err, "Das Etikett ließ sich nicht speichern.");
+    }
+    setBusy("");
   }
 
   async function wiederVerfuegbar(id) {
@@ -1063,6 +1117,18 @@ export default function App() {
                 const z = outfitState[i] || {};
                 return (
                   <>
+                  {wiederholungen[i] && (
+                    <p
+                      style={{ color: wiederholungen[i].selberAnlass ? C.signal : C.faint }}
+                      className="mt-4 text-xs leading-relaxed"
+                    >
+                      {wiederholungen[i].selberAnlass
+                        ? `Fast dasselbe hattest du vor ${wiederholungen[i].vorTagen} Tagen `
+                          + `schon bei „${wiederholungen[i].anlass}" an.`
+                        : `Ähnliche Zusammenstellung vor ${wiederholungen[i].vorTagen} Tagen`
+                          + `${wiederholungen[i].anlass ? ` (${wiederholungen[i].anlass})` : ""}.`}
+                    </p>
+                  )}
                   <div className="mt-5 flex gap-2">
                     <button
                       onClick={() => markWorn(i, o.teile, o.punkte)}
@@ -1346,6 +1412,33 @@ export default function App() {
               </div>
             )}
           </section>
+
+          {waschgaenge?.ladungen?.length > 0 && (
+            <section className="mt-8">
+              <Label>Waschgänge</Label>
+              <p style={{ color: C.faint }} className="mt-1 text-xs leading-relaxed">
+                Was gerade in der Wäsche liegt, nach Pflegehinweis und hell/dunkel
+                sortiert — so weit es Angaben dazu gibt.
+              </p>
+              {waschgaenge.ladungen.map((l) => (
+                <div key={`${l.pflege}-${l.ton}`} className="mt-3">
+                  <p style={{ color: C.dim }} className="text-sm">
+                    {l.pflege} · {l.ton} · {l.anzahl}{" "}
+                    {l.anzahl === 1 ? "Teil" : "Teile"}
+                  </p>
+                  <p style={{ color: C.faint }} className="text-xs">
+                    {l.teile.map((t) => t.name).join(", ")}
+                  </p>
+                </div>
+              ))}
+              {waschgaenge.ohnePflegeangabe.length > 0 && (
+                <p style={{ color: C.faint }} className="mt-3 text-xs leading-relaxed">
+                  Ohne Pflegeangabe: {waschgaenge.ohnePflegeangabe.map((t) => t.name).join(", ")}.
+                  Im Detail des Teils eintragen, dann landen sie in einer Ladung.
+                </p>
+              )}
+            </section>
+          )}
 
           <section className="mt-8">
             <Label>Koffer packen</Label>
@@ -2106,6 +2199,103 @@ export default function App() {
               >
                 wieder berechnen lassen
               </button>
+            )}
+
+            <div className="mt-4">
+              <Label>Schlagworte</Label>
+              <input
+                value={detail.tags || ""}
+                placeholder="z. B. urlaub, büro, lieblingsteil"
+                onChange={(e) => updateItemLater(detail.id, { tags: e.target.value || null })}
+                style={{ background: "transparent", color: C.text, borderColor: C.line }}
+                className="w-full border-b pb-1 text-sm"
+              />
+              <p style={{ color: C.faint }} className="mt-1 text-xs">
+                Frei wählbar, mit Komma getrennt. Die Suche im Schrank findet sie.
+              </p>
+            </div>
+
+            <div className="mt-4">
+              <Label>Waschetikett</Label>
+              <div className="mt-2 flex items-center gap-3">
+                {detail.labelPath && (
+                  <div style={{ background: C.bg }} className="h-20 w-20 shrink-0 overflow-hidden">
+                    <img
+                      src={etikettUrl(detail.id)} alt="Waschetikett"
+                      className="h-full w-full object-contain"
+                    />
+                  </div>
+                )}
+                <label
+                  style={{ borderColor: C.line, color: C.dim, letterSpacing: "0.16em" }}
+                  className="flex-1 cursor-pointer border py-3 text-center text-[10px] uppercase"
+                >
+                  {detail.labelPath ? "Etikett ersetzen" : "Etikett fotografieren"}
+                  <input
+                    type="file" accept="image/*" capture="environment" className="hidden"
+                    onChange={(e) => etikettHochladen(detail.id, e.target.files?.[0])}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Warum taucht dieses Teil (nicht) in Vorschlägen auf? */}
+            {diagnose?.gefunden && (
+              <div style={{ borderColor: C.line }} className="mt-5 border-t pt-4">
+                <Label>in Vorschlägen</Label>
+                {diagnose.sperre && (
+                  <p style={{ color: C.signal }} className="mt-2 text-xs">
+                    Zurzeit gesperrt: {diagnose.sperre}. Die folgenden Zahlen gelten
+                    für den Fall, dass es wieder verfügbar ist.
+                  </p>
+                )}
+                {diagnose.kombinationen === 0 ? (
+                  <p style={{ color: C.faint }} className="mt-2 text-xs leading-relaxed">
+                    Es fehlen andere Teile, um überhaupt eine Kombination zu bilden.
+                  </p>
+                ) : diagnose.zulaessig === 0 ? (
+                  <>
+                    <p style={{ color: C.signal }} className="mt-2 text-sm">
+                      Fällt aus allen {diagnose.kombinationen} Kombinationen heraus.
+                    </p>
+                    <ul className="mt-2">
+                      {diagnose.gruende.map((g) => (
+                        <li
+                          key={g.grund}
+                          style={{ borderColor: C.line }}
+                          className="flex justify-between border-b py-2 text-sm"
+                        >
+                          <span>{g.grund}</span>
+                          <span style={{ color: C.faint }}>
+                            {Math.round(g.anteil * 100)} %
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <>
+                    <p style={{ color: C.dim }} className="mt-2 text-sm">
+                      Passt in {diagnose.zulaessig} von {diagnose.kombinationen}{" "}
+                      Kombinationen, beste {Math.round(diagnose.bestePunkte * 100)} Punkte.
+                    </p>
+                    {diagnose.gruende.length > 0 && (
+                      <p style={{ color: C.faint }} className="mt-1 text-xs">
+                        Scheitert sonst an: {diagnose.gruende
+                          .map((g) => `${g.grund} (${Math.round(g.anteil * 100)} %)`)
+                          .join(", ")}
+                      </p>
+                    )}
+                    {diagnose.schwaechste.length > 0 && (
+                      <p style={{ color: C.faint }} className="mt-1 text-xs">
+                        Schwächster Wert: {diagnose.schwaechste
+                          .map(([k, v]) => `${k} ${v}`)
+                          .join(" · ")}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
             )}
 
             <div className="mt-5 flex items-center justify-between">

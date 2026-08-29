@@ -758,3 +758,80 @@ def test_packliste_kommt_mit_leerem_schrank_klar():
 def test_packliste_begrenzt_die_tage():
     assert e.pack_list(reise_schrank(), ctx(temp=16), tage=0)["tage"] == 1
     assert e.pack_list(reise_schrank(), ctx(temp=16), tage=999)["tage"] == 30
+
+
+# ── Diagnose ────────────────────────────────────────────────────────────
+
+def test_diagnose_meldet_unbekanntes_teil():
+    assert e.diagnose([item(id="a")], "gibtsnicht", ctx())["gefunden"] is False
+
+
+def test_diagnose_nennt_den_sperrgrund():
+    from datetime import datetime, timedelta, timezone
+    jetzt = datetime.now(timezone.utc)
+    for feld, erwartet in [({"archived": True}, "eingemottet"),
+                           ({"paused": True}, "pausiert")]:
+        schrank = [item(id="x", **feld), item(id="b", category="Unterteil"),
+                   item(id="s", category="Schuhe")]
+        assert e.diagnose(schrank, "x", ctx())["sperre"] == erwartet
+    schrank = [item(id="x", laundryUntil=(jetzt + timedelta(days=1)).isoformat()),
+               item(id="b", category="Unterteil"), item(id="s", category="Schuhe")]
+    assert e.diagnose(schrank, "x", ctx())["sperre"] == "in der Wäsche"
+
+
+def test_diagnose_rechnet_auch_fuer_gesperrte_teile_weiter():
+    """Die Sperre ist die eine Antwort, die Regeln die andere: auch ein
+    eingemottetes Teil soll zeigen, wie es sich schlagen wuerde."""
+    schrank = [item(id="x", archived=True), item(id="b", category="Unterteil"),
+               item(id="s", category="Schuhe")]
+    d = e.diagnose(schrank, "x", ctx())
+    assert d["kombinationen"] >= 1
+
+
+def test_diagnose_zaehlt_den_ausschlussgrund():
+    """Ein Teil, dessen Formalitaet zu weit von allem anderen weg liegt,
+    muss als Formalitaetsproblem erkennbar sein."""
+    schrank = [item(id="x", formality=5), item(id="b", category="Unterteil", formality=1),
+               item(id="s", category="Schuhe", formality=1)]
+    d = e.diagnose(schrank, "x", ctx())
+    assert d["zulaessig"] == 0
+    assert d["gruende"] and d["gruende"][0]["grund"] == "Formalität"
+    assert d["gruende"][0]["anteil"] == 1.0
+
+
+def test_diagnose_nennt_die_schwaechsten_werte():
+    schrank = [item(id="x"), item(id="b", category="Unterteil"),
+               item(id="s", category="Schuhe")]
+    d = e.diagnose(schrank, "x", ctx())
+    assert d["zulaessig"] >= 1
+    assert len(d["schwaechste"]) <= 3
+    # aufsteigend sortiert: das schwaechste zuerst
+    werte = [w for _, w in d["schwaechste"]]
+    assert werte == sorted(werte)
+
+
+# ── Wetter im Material ──────────────────────────────────────────────────
+
+def test_regen_wertet_empfindliche_materialien_ab():
+    wildleder = [item(material="Wildleder")]
+    assert e.s_material(wildleder, 16) == pytest.approx(1.0)
+    assert e.s_material(wildleder, 16, regen=3) == pytest.approx(0.7)
+    assert e.s_material(wildleder, 16, regen=8) == pytest.approx(0.4)
+
+
+def test_regen_laesst_robuste_materialien_in_ruhe():
+    assert e.s_material([item(material="Denim")], 16, regen=8) == pytest.approx(1.0)
+    assert e.s_material([item(material="Leder")], 16, regen=8) == pytest.approx(1.0)
+
+
+def test_wind_trifft_nur_duenne_stoffe():
+    assert e.s_material([item(material="Leinen")], 20, wind=25) == pytest.approx(0.8)
+    assert e.s_material([item(material="Leinen")], 20, wind=40) == pytest.approx(0.65)
+    assert e.s_material([item(material="Wolle")], 10, wind=40) == pytest.approx(1.0)
+
+
+def test_ohne_wetterangabe_bleibt_alles_wie_zuvor():
+    """Regen und Wind sind Vorgabe null — Aufrufer, die sie nicht kennen,
+    bekommen exakt das alte Verhalten."""
+    parts = [item(material="Wildleder")]
+    assert e.s_material(parts, 16) == e.s_material(parts, 16, regen=0, wind=0)

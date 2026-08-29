@@ -45,12 +45,30 @@ def reset_client() -> None:
 
 
 def extract_json(text: str) -> Any:
-    """Wie extractJson() im Prototypen: das aeusserste Objekt aus dem Text."""
+    """Wie extractJson() im Prototypen: das aeusserste Objekt aus dem Text.
+
+    Unparsbares JSON wird als AIUnavailable gemeldet und nicht als roher
+    JSONDecodeError durchgereicht. Der Unterschied ist nicht kosmetisch:
+    die Aufrufer fangen AIUnavailable ab und fallen auf die Rangfolge der
+    Engine zurueck, waehrend der Decoder-Fehler bis zum HTTP 500 durchlief
+    und damit den Hauptweg der App lahmlegte — ausgerechnet wegen einer
+    Modellantwort, die nur abgeschnitten war.
+    """
     start = text.find("{")
     end = text.rfind("}")
     if start < 0 or end < 0:
         raise AIUnavailable("Die Antwort enthielt kein JSON.", "format")
-    return json.loads(text[start:end + 1])
+    roh = text[start:end + 1]
+    try:
+        return json.loads(roh)
+    except json.JSONDecodeError as exc:
+        # Anfang und Laenge ins Log, damit sich abgeschnittene von
+        # fehlerhaften Antworten unterscheiden lassen. Der Schluessel
+        # taucht in Modellantworten nicht auf, der Auszug ist unbedenklich.
+        log.warning("Antwort war kein gueltiges JSON (%s Zeichen, Fehler bei %s): %.120s",
+                    len(roh), exc.pos, roh)
+        raise AIUnavailable(
+            "Die Antwort des Modells war unvollständig.", "format") from None
 
 
 def _describe(exc: Exception) -> AIUnavailable:

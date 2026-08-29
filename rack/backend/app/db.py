@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS items (
   brand           TEXT,
   size            TEXT,
   care            TEXT,
+  label_path      TEXT,
+  tags            TEXT,
   archived        INTEGER NOT NULL DEFAULT 0,
   wear_count      INTEGER NOT NULL DEFAULT 0,
   created_at      TEXT NOT NULL
@@ -133,7 +135,8 @@ FIELDS = [
     ("cutout", "cutout"), ("paused", "paused"), ("last_worn", "lastWorn"),
     ("laundry_until", "laundryUntil"), ("price", "price"),
     ("bought_at", "boughtAt"), ("brand", "brand"), ("size", "size"),
-    ("care", "care"), ("archived", "archived"),
+    ("care", "care"), ("label_path", "labelPath"), ("tags", "tags"),
+    ("archived", "archived"),
     ("wear_count", "wearCount"), ("created_at", "createdAt"),
 ]
 COL_TO_KEY = dict(FIELDS)
@@ -184,6 +187,8 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("items", "size", "TEXT"),
     ("items", "care", "TEXT"),
     ("items", "archived", "INTEGER NOT NULL DEFAULT 0"),
+    ("items", "label_path", "TEXT"),
+    ("items", "tags", "TEXT"),
     ("outfit_log", "photo_path", "TEXT"),
 ]
 

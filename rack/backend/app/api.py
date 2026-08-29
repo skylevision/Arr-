@@ -35,11 +35,16 @@ MAX_FILES = 25
 # ── Kontext fuer die Engine ─────────────────────────────────────────────
 
 def build_ctx(occasion: str = "Alltag", temp: float = 16,
-              anchor: str | None = None) -> dict[str, Any]:
+              anchor: str | None = None, regen: float = 0.0,
+              wind: float = 0.0) -> dict[str, Any]:
     profile = db.get_profile()
     target = next((o["f"] for o in E.OCCASIONS if o["key"] == occasion), 2)
     return {
         "temp": temp,
+        # Regen in mm, Wind in km/h — gehen in die Materialbewertung ein.
+        # Ohne Angabe null, dann verhaelt sich alles wie zuvor.
+        "regen": regen,
+        "wind": wind,
         "target": target,
         "mode": profile.get("silhouette") or "frei",
         "body": profile,
@@ -204,6 +209,32 @@ def _pruefe_vokabular(attrs: dict[str, Any]) -> list[str]:
 
 
 # ── Erfassen ────────────────────────────────────────────────────────────
+
+def _normalise_tags(attrs: dict[str, Any]) -> None:
+    """Freie Schlagworte aufraeumen.
+
+    Bewusst frei und nicht aus einer Liste: feste Kategorien passen nie
+    ganz, das ist die haeufigste Kritik an solchen Apps. Gespeichert wird
+    eine Kommaliste, kleingeschrieben und ohne Doppelte, damit die Suche
+    zuverlaessig trifft.
+    """
+    if "tags" not in attrs:
+        return
+    roh = attrs.get("tags")
+    if isinstance(roh, list):
+        teile = roh
+    elif isinstance(roh, str):
+        teile = roh.split(",")
+    else:
+        attrs["tags"] = None
+        return
+    sauber: list[str] = []
+    for t in teile:
+        wert = str(t).strip().lower()
+        if wert and wert not in sauber:
+            sauber.append(wert)
+    attrs["tags"] = ", ".join(sauber) if sauber else None
+
 
 def _normalise_material(attrs: dict[str, Any]) -> None:
     """material auf das Vokabular abbilden, Zweitmaterial abspalten.
@@ -393,6 +424,7 @@ def create_item(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     attrs["id"] = item_id
     attrs.setdefault("cutout", payload.get("cutout", False))
     _normalise_material(attrs)
+    _normalise_tags(attrs)
     verworfen = _pruefe_vokabular(attrs)
     if verworfen:
         log.info("Unbekannte Werte verworfen: %s", ", ".join(verworfen))
@@ -426,6 +458,8 @@ def patch_item(item_id: str, patch: dict[str, Any] = Body(...)) -> dict[str, Any
     merged = {**current, **patch}
     if "material" in patch:
         _normalise_material(merged)
+    if "tags" in patch:
+        _normalise_tags(merged)
     # Wer ein Teil von Hand wieder freigibt, meint auch die Waesche —
     # sonst drueckt man "verfügbar" und es bleibt trotzdem gesperrt.
     if patch.get("paused") is False and current.get("paused"):
@@ -533,7 +567,9 @@ def _outfit_result(payload: dict[str, Any],
     melden("rechnen", "Kombinationen rechnen", schritt=0, gesamt=schritte)
 
     items = db.list_items()
-    ctx = build_ctx(occasion, temp, anchor)
+    ctx = build_ctx(occasion, temp, anchor,
+                    float(payload.get("regen") or 0),
+                    float(payload.get("wind") or 0))
     result = E.top_picks(items, ctx)
     picks = result["picks"]
     if not picks:
@@ -741,6 +777,125 @@ def worn_log(limit: int = Query(200, ge=1, le=1000)) -> list[dict[str, Any]]:
     return db.list_outfit_log(limit)
 
 
+@router.get("/items/{item_id}/diagnose")
+def item_diagnose(item_id: str, anlass: str = Query("Alltag"),
+                  temp: float = Query(16)) -> dict[str, Any]:
+    """Warum taucht dieses Teil nicht in den Vorschlägen auf?"""
+    res = E.diagnose(db.list_items(), item_id, build_ctx(anlass, temp))
+    if not res.get("gefunden"):
+        raise HTTPException(404, "Teil nicht gefunden.")
+    return res
+
+
+@router.post("/items/{item_id}/etikett")
+async def etikett_hochladen(item_id: str, foto: UploadFile = File(...)) -> dict[str, Any]:
+    """Foto vom Waschetikett.
+
+    Ein zweites Bild neben dem Teil selbst — die Pflegesymbole liest man
+    im Zweifel lieber ab, als sie aus einer Auswahlliste zu erraten.
+    Wird nicht freigestellt: es geht um Lesbarkeit, nicht um Optik.
+    """
+    if not db.get_item(item_id):
+        raise HTTPException(404, "Teil nicht gefunden.")
+    roh = await foto.read()
+    if not roh:
+        raise HTTPException(400, "Das Foto war leer.")
+    fertig = images.prepare(roh, cutout=False)
+    pfad = images.store(f"label_{item_id}", fertig.ablage, fertig.media_type)
+    db.update_item(item_id, {"labelPath": pfad})
+    return {"id": item_id, "labelPath": pfad}
+
+
+@router.get("/items/{item_id}/etikett")
+def etikett_lesen(item_id: str) -> FileResponse:
+    teil = db.get_item(item_id)
+    if not teil or not teil.get("labelPath"):
+        raise HTTPException(404, "Zu diesem Teil gibt es kein Etikettfoto.")
+    pfad = images.path_for(teil["labelPath"])
+    if not pfad:
+        raise HTTPException(404, "Die Bilddatei fehlt.")
+    return FileResponse(pfad, headers={"Cache-Control": "public, max-age=86400"})
+
+
+@router.get("/waschgaenge")
+def waschgaenge() -> dict[str, Any]:
+    """Was kann zusammen in eine Maschine?
+
+    Gruppiert wird nach dem Pflegehinweis; innerhalb einer Gruppe noch
+    einmal grob nach hell und dunkel, weil das der zweite Grund ist,
+    warum man Waesche trennt. Teile ohne Pflegeangabe stehen getrennt —
+    raten waere hier die falsche Hilfe.
+    """
+    def helligkeit(hexwert: str | None) -> str:
+        if not hexwert:
+            return "unbekannt"
+        return "hell" if E.hsl(hexwert)["l"] >= 0.5 else "dunkel"
+
+    offen = [i for i in db.list_items()
+             if not i.get("archived") and (
+                 E.laundry_remaining(i) > 0 or i.get("paused"))]
+
+    gruppen: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    ohne: list[dict[str, Any]] = []
+    for i in offen:
+        eintrag = {"id": i["id"], "name": i.get("name"),
+                   "material": i.get("material"), "farbe": i.get("colorName")}
+        pflege = i.get("care")
+        if not pflege:
+            ohne.append(eintrag)
+            continue
+        gruppen.setdefault(pflege, {}).setdefault(helligkeit(i.get("colorHex")), []).append(eintrag)
+
+    ladungen = []
+    for pflege, nach_farbe in gruppen.items():
+        for ton, teile in nach_farbe.items():
+            ladungen.append({"pflege": pflege, "ton": ton, "teile": teile,
+                             "anzahl": len(teile)})
+    ladungen.sort(key=lambda x: -x["anzahl"])
+
+    return {"wartend": len(offen), "ladungen": ladungen, "ohnePflegeangabe": ohne}
+
+
+@router.post("/wiederholung")
+def wiederholung(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Hattest du das schon einmal an — und wenn ja, wann und wobei?
+
+    Fuer die Frage, ob man dieselben Leute zweimal im selben Outfit
+    trifft. Gewertet wird nach Ueberschneidung: zwei Outfits, die sich
+    nur im Guertel unterscheiden, sind praktisch dasselbe.
+    """
+    ids = set(payload.get("teile") or [])
+    if not ids:
+        raise HTTPException(400, "Keine Teile übergeben.")
+    anlass = payload.get("anlass")
+    tage = int(payload.get("tage") or 21)
+    grenze = datetime.now(timezone.utc) - timedelta(days=tage)
+
+    treffer = []
+    for eintrag in db.list_outfit_log(limit=1000):
+        getragen = _tage_her(eintrag.get("worn_at"))
+        if getragen is None or getragen > tage:
+            continue
+        alt = set(eintrag.get("item_ids") or [])
+        if not alt:
+            continue
+        gleich = len(ids & alt)
+        anteil = gleich / max(len(ids), len(alt))
+        if anteil < 0.6:
+            continue
+        treffer.append({
+            "wann": eintrag.get("worn_at"), "vorTagen": getragen,
+            "anlass": eintrag.get("occasion"), "ueberschneidung": round(anteil, 2),
+            "gleicheTeile": gleich,
+            "selberAnlass": bool(anlass and eintrag.get("occasion") == anlass),
+        })
+
+    treffer.sort(key=lambda x: x["vorTagen"])
+    warnung = next((t for t in treffer if t["selberAnlass"]), None) or (
+        treffer[0] if treffer else None)
+    return {"geprueft": tage, "treffer": treffer[:5], "warnung": warnung}
+
+
 # ── Auswertung ──────────────────────────────────────────────────────────
 
 def _tage_her(iso: str | None) -> int | None:
@@ -907,7 +1062,10 @@ def packliste(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
     """Was muss mit, um <tage> Tage bei <temp> Grad angezogen zu sein?"""
     tage = int(payload.get("tage") or 5)
     ctx = build_ctx(payload.get("anlass") or "Alltag",
-                    float(payload.get("temp") if payload.get("temp") is not None else 16))
+                    float(payload.get("temp") if payload.get("temp") is not None else 16),
+                    None,
+                    float(payload.get("regen") or 0),
+                    float(payload.get("wind") or 0))
     res = E.pack_list(db.list_items(), ctx, tage)
 
     # Teile anreichern, damit die Oberflaeche Bilder zeigen kann, ohne

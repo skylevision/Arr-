@@ -90,6 +90,15 @@ export const api = {
   planLoeschen: (datum) => call(`/plan/${datum}`, { method: "DELETE" }),
 
   packliste: (payload) => call("/packliste", { method: "POST", body: payload }),
+  diagnose: (id, anlass, temp) =>
+    call(`/items/${id}/diagnose?anlass=${encodeURIComponent(anlass)}&temp=${temp}`),
+  waschgaenge: () => call("/waschgaenge"),
+  wiederholung: (payload) => call("/wiederholung", { method: "POST", body: payload }),
+  etikettHochladen: (id, file) => {
+    const fd = new FormData();
+    fd.append("foto", file);
+    return call(`/items/${id}/etikett`, { method: "POST", form: fd });
+  },
   aussortieren: () => call("/aussortieren"),
 
   ootdHochladen: (logId, file) => {
@@ -120,6 +129,11 @@ export const api = {
 
 /* Bild-URL eines Teils. Der Server setzt einen langen Cache-Header,
    deshalb reicht die schlichte Adresse ohne Zeitstempel. */
+export function etikettUrl(id) {
+  const t = token();
+  return `/api/items/${id}/etikett${t ? `?token=${encodeURIComponent(t)}` : ""}`;
+}
+
 export function imageUrl(id) {
   const t = token();
   return `/api/images/${id}${t ? `?token=${encodeURIComponent(t)}` : ""}`;
