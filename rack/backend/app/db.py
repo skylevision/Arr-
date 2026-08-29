@@ -757,6 +757,74 @@ def geplante_teile(ab: str, person_id: int | None = None) -> set[str]:
     return out
 
 
+def merge_outfit_log(eintrag: dict[str, Any], foto: str | None = None) -> bool:
+    """Protokolleintrag aus einem Export uebernehmen.
+
+    Schreibt direkt statt ueber log_outfit(), weil dort die Zaehler an den
+    Teilen hochgingen und die Waeschefrist neu gesetzt wuerde — beim
+    Wiederherstellen einer Sicherung waere beides falsch. Gibt True
+    zurueck, wenn der Eintrag neu war; ein zweiter Import derselben Datei
+    aendert nichts.
+    """
+    if get_outfit_log_entry(eintrag["id"]):
+        return False
+    ids = eintrag.get("item_ids") or eintrag.get("itemIds") or []
+    conn = connect()
+    with conn:
+        conn.execute(
+            "INSERT INTO outfit_log "
+            "  (id, worn_at, item_ids, occasion, temp, score, photo_path, person_id) "
+            "VALUES (:id, :worn_at, :item_ids, :occasion, :temp, :score, "
+            "        :photo_path, :person_id)",
+            {"id": eintrag["id"],
+             "worn_at": eintrag.get("worn_at") or eintrag.get("wornAt") or now_iso(),
+             "item_ids": json.dumps(ids),
+             "occasion": eintrag.get("occasion"), "temp": eintrag.get("temp"),
+             "score": eintrag.get("score"), "photo_path": foto,
+             "person_id": aktive_person()})
+    return True
+
+
+def get_outfit_log_entry(log_id: str) -> dict[str, Any] | None:
+    row = connect().execute(
+        "SELECT * FROM outfit_log WHERE id = ?", (log_id,)).fetchone()
+    if not row:
+        return None
+    d = {k: row[k] for k in row.keys()}
+    d["item_ids"] = json.loads(d["item_ids"])
+    return d
+
+
+def merge_saved_outfit(fit: dict[str, Any]) -> bool:
+    """Gemerktes Outfit aus einem Export uebernehmen, ohne zu doppeln.
+
+    Erkennungsmerkmal ist die ID aus dem Export; fehlt sie, entscheidet
+    der Name, damit ein Export aus dem Prototypen nicht bei jedem Lauf
+    dieselben Outfits erneut anlegt.
+    """
+    kennung = fit.get("id")
+    if kennung and connect().execute(
+            "SELECT 1 FROM saved_outfits WHERE id = ?", (kennung,)).fetchone():
+        return False
+    if not kennung and connect().execute(
+            "SELECT 1 FROM saved_outfits WHERE name = ? AND person_id = ?",
+            (fit["name"], aktive_person())).fetchone():
+        return False
+    entry = {"id": kennung or new_id("fit"), "name": fit["name"],
+             "item_ids": json.dumps(fit.get("itemIds") or fit.get("item_ids") or []),
+             "occasion": fit.get("occasion"), "notes": fit.get("notes"),
+             "created_at": fit.get("createdAt") or now_iso(),
+             "person_id": aktive_person()}
+    conn = connect()
+    with conn:
+        conn.execute(
+            "INSERT INTO saved_outfits "
+            "  (id, name, item_ids, occasion, notes, created_at, person_id) "
+            "VALUES (:id, :name, :item_ids, :occasion, :notes, :created_at, "
+            "        :person_id)", entry)
+    return True
+
+
 # ── Trends ──────────────────────────────────────────────────────────────
 
 def get_trends() -> dict[str, Any] | None:

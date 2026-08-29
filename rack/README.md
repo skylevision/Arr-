@@ -113,11 +113,22 @@ tar xzf /mnt/user/appdata/rack/backups/rack-2026-08-27-2313.tar.gz -C /mnt/user/
 docker compose start rack
 ```
 
-Zusätzlich gibt es in der App unter Profil einen **Export**, der eine einzelne
-JSON-Datei mit Teilen, Bildern, Profil und Rückmeldungen herunterlädt — dasselbe Format
-wie im Prototypen. Der **Import** liest sowohl diese Datei als auch einen Export aus dem
-alten Artefakt-Prototypen. Der Import ist idempotent: dieselbe Datei zweimal eingelesen
-legt nichts doppelt an.
+Zusätzlich gibt es in der App unter Profil einen **Export** als einzelne JSON-Datei.
+Seit Fassung 3 (29.08.2026) ist er **vollständig**: Teile mit allen Feldern, Bilder,
+Etikettfotos, Outfitfotos, Profil, Rückmeldungen, Trageprotokoll, gemerkte Outfits und
+Planung. Vorher fehlte davon einiges, und das Trageprotokoll stand zwar in der Datei,
+wurde vom Import aber nie gelesen — eine Wiederherstellung verlor damit die gesamte
+Historie samt Zählung und Bilanz.
+
+Ein Export gehört immer **genau einer Person**; der Import legt ihn in die dann aktive.
+Die Personennummer aus der Datei wird dabei verworfen, sonst landeten die Teile bei einer
+fremden oder längst gelöschten Person und wären unsichtbar.
+
+Der Import ist idempotent: dieselbe Datei zweimal eingelesen legt nichts doppelt an. Beim
+Protokoll wird bewusst direkt geschrieben statt über den normalen Weg — sonst gingen die
+Tragezähler hoch und die Wäschefrist würde neu gestartet, was beim Wiederherstellen einer
+Sicherung falsch wäre. Er liest weiterhin auch einen Export aus dem alten
+Artefakt-Prototypen.
 
 Als Nachtsicherung eingerichtet werden kann das Skript über die Unraid-Oberfläche unter
 Settings, User Scripts — bewusst nicht automatisch eingetragen, das ist deine

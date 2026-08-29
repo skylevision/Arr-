@@ -1283,24 +1283,58 @@ def get_weather(lat: float = Query(...), lon: float = Query(...)) -> dict[str, A
 
 @router.get("/export")
 def export_all() -> JSONResponse:
-    """Exportformat des Prototypen, damit ein Export hier dort wieder
-    eingelesen werden koennte."""
+    """Vollstaendige Sicherung der aktiven Person.
+
+    "Vollstaendig" ist hier woertlich gemeint: was hier fehlt, ist nach
+    einer Wiederherstellung weg. Bis August 2026 enthielt der Export
+    weder gemerkte noch geplante Outfits, keine Etikett- und
+    Outfitfotos — und das Trageprotokoll war zwar drin, wurde vom Import
+    aber nie gelesen.
+
+    Ein Export gehoert immer genau einer Person; der Import legt ihn in
+    die dann aktive.
+    """
     items = db.list_items()
+    log = db.list_outfit_log(10000)
+
     bilder: dict[str, str] = {}
+    etiketten: dict[str, str] = {}
+    outfitfotos: dict[str, str] = {}
+
+    def als_data_url(rel: str | None) -> str | None:
+        pfad = images.path_for(rel or "")
+        if not pfad:
+            return None
+        media = "image/png" if pfad.suffix == ".png" else "image/jpeg"
+        return f"data:{media};base64,{images.to_base64(pfad.read_bytes())}"
+
     for item in items:
-        path = images.path_for(item.get("imagePath") or "")
-        if not path:
-            continue
-        media = "image/png" if path.suffix == ".png" else "image/jpeg"
-        bilder[item["id"]] = f"data:{media};base64,{images.to_base64(path.read_bytes())}"
+        haupt = als_data_url(item.get("imagePath"))
+        if haupt:
+            bilder[item["id"]] = haupt
+        etikett = als_data_url(item.get("labelPath"))
+        if etikett:
+            etiketten[item["id"]] = etikett
+
+    for eintrag in log:
+        foto = als_data_url(eintrag.get("photo_path"))
+        if foto:
+            outfitfotos[eintrag["id"]] = foto
 
     payload = {
-        "version": 2,
+        "version": 3,
         "items": items,
         "images": bilder,
+        "etiketten": etiketten,
+        "outfitfotos": outfitfotos,
         "profile": db.get_profile(),
         "fb": db.get_feedback(),
-        "outfitLog": db.list_outfit_log(10000),
+        "outfitLog": log,
+        "gespeicherteOutfits": db.list_saved_outfits(),
+        "plaene": db.list_plans(),
+        # Nur zur Einordnung: aus welchem Schrank stammt die Datei?
+        "person": {"id": db.aktive_person(),
+                   "name": db.get_profile().get("name")},
     }
     name = f"rack-{datetime.now(timezone.utc).date().isoformat()}.json"
     return JSONResponse(payload, headers={
@@ -1337,6 +1371,11 @@ def import_all(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
             continue
         item = {k: v for k, v in raw.items() if k in db.KEY_TO_COL}
         item["id"] = raw["id"]
+        # Die Personennummer aus der Datei wird verworfen: sie zeigt auf
+        # den Schrank, aus dem exportiert wurde. Beim Einlesen zaehlt die
+        # Person, die gerade aktiv ist — sonst landen die Teile bei einer
+        # fremden oder laengst geloeschten Person und sind unsichtbar.
+        item.pop("personId", None)
 
         # Waerme und Formalitaet neu rechnen, ausser der Nutzer hat im
         # Export von Hand eingegriffen.
@@ -1359,6 +1398,14 @@ def import_all(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
             db.insert_item(item)
             neu += 1
 
+    # Etikettfotos: seit Fassung 3 im Export.
+    etiketten = payload.get("etiketten") or {}
+    for item_id, url in etiketten.items():
+        decoded = _decode_data_url(url)
+        if decoded and db.get_item(item_id):
+            db.update_item(item_id, {
+                "labelPath": images.store(f"label_{item_id}", decoded[0], decoded[1])})
+
     if isinstance(payload.get("profile"), dict):
         db.save_profile(payload["profile"])
 
@@ -1367,6 +1414,43 @@ def import_all(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         for pair in fb.get(verdict) or []:
             db.set_feedback(pair, verdict)
 
+    # Trageprotokoll. Es stand schon immer im Export, wurde aber nie
+    # eingelesen — nach einer Wiederherstellung fehlte damit die gesamte
+    # Historie, und mit ihr Zaehlung, Bilanz und Cost-per-Wear.
+    #
+    # Idempotent ueber die Eintrags-ID: die Zaehler an den Teilen kommen
+    # aus dem Export selbst und duerfen nicht durch erneutes Buchen
+    # hochgezaehlt werden, deshalb wird hier direkt geschrieben statt
+    # log_outfit() aufzurufen.
+    outfitfotos = payload.get("outfitfotos") or {}
+    log_neu = 0
+    for eintrag in payload.get("outfitLog") or []:
+        if not isinstance(eintrag, dict) or not eintrag.get("id"):
+            continue
+        foto = None
+        decoded = _decode_data_url(outfitfotos.get(eintrag["id"], ""))
+        if decoded:
+            foto = images.store(f"ootd_{eintrag['id']}", decoded[0], decoded[1])
+        if db.merge_outfit_log(eintrag, foto):
+            log_neu += 1
+
+    # Gemerkte Outfits und Planung.
+    fits_neu = 0
+    for fit in payload.get("gespeicherteOutfits") or []:
+        if not isinstance(fit, dict) or not fit.get("name"):
+            continue
+        if db.merge_saved_outfit(fit):
+            fits_neu += 1
+
+    plan_neu = 0
+    for plan in payload.get("plaene") or []:
+        if not isinstance(plan, dict) or not plan.get("datum"):
+            continue
+        db.set_plan(plan["datum"], plan.get("itemIds") or [],
+                    plan.get("occasion"), plan.get("notes"))
+        plan_neu += 1
+
     return {"neu": neu, "aktualisiert": aktualisiert,
             "bilder": len([b for b in bilder.values() if _decode_data_url(b)]),
+            "protokoll": log_neu, "outfits": fits_neu, "plaene": plan_neu,
             "teile": len(db.list_items())}

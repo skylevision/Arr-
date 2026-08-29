@@ -160,3 +160,66 @@ def test_geloeschtes_teil_nimmt_seine_rueckmeldungen_mit(frisch):
     assert db.get_feedback()["liked"] == ["a|b"]
     db.delete_item("a")
     assert db.get_feedback()["liked"] == []
+
+
+# ── Sicherung: Export und Import ────────────────────────────────────────
+
+def test_protokoll_kommt_beim_import_zurueck(frisch):
+    """Der Export enthielt das Trageprotokoll schon immer, der Import las
+    es nie — nach einer Wiederherstellung fehlte die ganze Historie."""
+    db = frisch
+    db.insert_item({"id": "a", "name": "A", "category": "Oberteil"})
+    eintrag = db.log_outfit(["a"], "Alltag", 16, 0.9)
+
+    # Neue, leere Datenbank simulieren: Protokoll weg, Teil noch da.
+    db.connect().execute("DELETE FROM outfit_log")
+    db.connect().commit()
+    assert db.list_outfit_log() == []
+
+    assert db.merge_outfit_log({"id": eintrag["id"], "worn_at": eintrag["worn_at"],
+                                "item_ids": ["a"], "occasion": "Alltag",
+                                "temp": 16, "score": 0.9}) is True
+    zurueck = db.list_outfit_log()
+    assert len(zurueck) == 1
+    assert zurueck[0]["occasion"] == "Alltag"
+    assert zurueck[0]["item_ids"] == ["a"]
+
+
+def test_protokoll_import_ist_idempotent(frisch):
+    db = frisch
+    eintrag = {"id": "log_1", "worn_at": "2026-08-01T10:00:00+00:00",
+               "item_ids": ["a"], "occasion": "Arbeit", "temp": 12, "score": 0.8}
+    assert db.merge_outfit_log(eintrag) is True
+    assert db.merge_outfit_log(eintrag) is False
+    assert len(db.list_outfit_log()) == 1
+
+
+def test_protokoll_import_zaehlt_die_teile_nicht_hoch(frisch):
+    """log_outfit() wuerde wearCount erhoehen und die Waesche starten —
+    beim Wiederherstellen einer Sicherung waere beides falsch."""
+    db = frisch
+    db.insert_item({"id": "a", "name": "A", "category": "Oberteil", "wearCount": 7})
+    db.merge_outfit_log({"id": "log_1", "worn_at": "2026-08-01T10:00:00+00:00",
+                         "item_ids": ["a"], "occasion": "Alltag"})
+    teil = db.get_item("a")
+    assert teil["wearCount"] == 7
+    assert teil["laundryUntil"] is None
+
+
+def test_gemerkte_outfits_kommen_zurueck_und_doppeln_nicht(frisch):
+    db = frisch
+    fit = {"id": "fit_1", "name": "Testfit", "itemIds": ["a", "b"], "occasion": "Alltag"}
+    assert db.merge_saved_outfit(fit) is True
+    assert db.merge_saved_outfit(fit) is False
+    gespeichert = db.list_saved_outfits()
+    assert len(gespeichert) == 1
+    assert gespeichert[0]["itemIds"] == ["a", "b"]
+
+
+def test_gemerktes_outfit_ohne_id_erkennt_sich_am_namen(frisch):
+    """Ein Export aus dem Prototypen bringt keine IDs mit — ohne diese
+    Regel legte jeder Lauf dieselben Outfits erneut an."""
+    db = frisch
+    assert db.merge_saved_outfit({"name": "Ohne Kennung", "itemIds": ["a"]}) is True
+    assert db.merge_saved_outfit({"name": "Ohne Kennung", "itemIds": ["a"]}) is False
+    assert len(db.list_saved_outfits()) == 1
