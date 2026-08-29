@@ -478,6 +478,27 @@ def delete_item(item_id: str) -> bool:
     return cur.rowcount > 0
 
 
+def verwaiste_datensaetze() -> dict[str, int]:
+    """Zeilen, deren Person es nicht mehr gibt.
+
+    Sollte leer sein. Ist sie es nicht, ist beim Loeschen einer Person
+    oder beim Einlesen einer Sicherung etwas danebengegangen — solche
+    Zeilen tauchen in keiner Ansicht auf und faellt sonst niemandem auf.
+    Gemeldet statt automatisch geloescht: was hier steht, koennte auch
+    ein Fehler in der Personenverwaltung sein, und dann waere Loeschen
+    die falsche Antwort.
+    """
+    conn = connect()
+    out: dict[str, int] = {}
+    for tabelle in ("items", "outfit_log", "saved_outfits", "planned_outfits", "feedback"):
+        n = conn.execute(
+            f"SELECT COUNT(*) AS n FROM {tabelle} "
+            "WHERE person_id NOT IN (SELECT id FROM profile)").fetchone()["n"]
+        if n:
+            out[tabelle] = n
+    return out
+
+
 def alle_bildpfade() -> set[str]:
     """Jeder Bildpfad, den irgendein Datensatz noch braucht.
 

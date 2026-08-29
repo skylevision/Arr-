@@ -351,3 +351,16 @@ def test_person_loeschen_nimmt_ihre_rueckmeldungen_mit(frisch):
     assert db.get_feedback()["liked"] == ["a|b"]
     uebrig = db.connect().execute("SELECT COUNT(*) c FROM feedback").fetchone()["c"]
     assert uebrig == 1
+
+
+def test_verwaiste_datensaetze_werden_erkannt(frisch):
+    """Zeilen ohne existierende Person tauchen in keiner Ansicht auf und
+    fallen sonst niemandem auf. Genau so blieben nach einem fehlerhaften
+    Import zwei Teile im Bestand liegen."""
+    db = frisch
+    assert db.verwaiste_datensaetze() == {}
+    db.insert_item({"id": "geist", "name": "Geist", "category": "Oberteil",
+                    "personId": 99})
+    assert db.verwaiste_datensaetze() == {"items": 1}
+    assert db.get_item("geist") is None
+    assert [i["id"] for i in db.list_items()] == []

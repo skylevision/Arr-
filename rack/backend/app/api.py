@@ -57,12 +57,21 @@ def build_ctx(occasion: str = "Alltag", temp: float = 16,
 # ── Gesundheit ──────────────────────────────────────────────────────────
 
 @router.get("/health")
-def health() -> dict[str, Any]:
-    conn = db.connect()
-    count = conn.execute("SELECT COUNT(*) AS n FROM items").fetchone()["n"]
+def health(request: Request) -> dict[str, Any]:
+    """Kurzer Zustandsbericht.
+
+    "teile" zaehlt die der aktiven Person — vorher waren es alle, und die
+    Zahl passte dann nicht zu dem, was die App anzeigt. Genau diese
+    Abweichung hat verwaiste Datensaetze aufgedeckt; deshalb steht die
+    Zahl jetzt auch ausdruecklich mit dabei, statt sich in einer
+    Gesamtsumme zu verstecken.
+    """
+    db.setze_person(person_id(request))
+    verwaist = db.verwaiste_datensaetze()
     return {
         "status": "ok",
-        "teile": count,
+        "teile": len(db.list_items()),
+        "verwaist": verwaist or None,
         "ki": settings.ai_enabled,
         "modelle": {"lesen": settings.model_vision, "kuratieren": settings.model_curate}
         if settings.ai_enabled else None,
