@@ -5,7 +5,7 @@ import {
 } from "./api.js";
 import {
   ACCESSORY_TYPES, BOTTOM_LEN, BUILDS, C, CARE_LABELS, CATEGORIES, DISPLAY,
-  FITS, MATERIALS,
+  FITS, MATERIALS, PRINT_POSITIONS,
   OCCASIONS, PATTERN_SCALE, PATTERNS, PHOTO_GUIDE, RISES, SANS, SHOE_WEIGHT,
   SILHOUETTES, SLEEVES, TEXTURES, THICKNESS, TOP_LEN, TORSOS,
 } from "./constants.js";
@@ -91,6 +91,7 @@ export default function App() {
   const [packTage, setPackTage] = useState(5);
   const [packTemp, setPackTemp] = useState(16);
   const [ausmisten, setAusmisten] = useState(null);
+  const [trends, setTrends] = useState(null);
   const [personen, setPersonen] = useState([]);
   const aktivePerson = person();
   const [diagnose, setDiagnose] = useState(null);
@@ -187,6 +188,9 @@ export default function App() {
     if (view !== "bilanz") return;
     api.stats().then(setStats).catch((err) => fail(err, "Die Bilanz war nicht abrufbar."));
     api.aussortieren().then(setAusmisten).catch(() => {});
+    // Nur lesend: der Endpunkt liefert den Zwischenspeicher und holt
+    // nichts nach. Neu geholt wird beim Kuratieren, wenn er zu alt ist.
+    api.trends().then(setTrends).catch(() => {});
   }, [view, items, fail]);
 
   // Wetter beim Start holen, aber nur wenn der Standort schon freigegeben
@@ -1791,6 +1795,60 @@ export default function App() {
               )}
 
               <section className="mt-7">
+                <Label>aktuelle Einordnung</Label>
+                {!trends ? (
+                  <p style={{ color: C.faint }} className="mt-1 text-xs leading-relaxed">
+                    Wird beim nächsten Vorschlag geholt und danach 30 Tage
+                    weiterverwendet.
+                  </p>
+                ) : (
+                  <>
+                    <p style={{ color: C.faint }} className="mt-1 text-xs">
+                      Stand {trends.trends?.stand || "unbekannt"}
+                      {trends.geholt ? ` · geholt am ${trends.geholt.slice(0, 10)}` : ""}
+                      {trends.alter != null ? ` · vor ${trends.alter} Tagen` : ""}
+                    </p>
+                    <ul className="mt-2">
+                      {(trends.trends?.trends || []).map((t) => (
+                        <li
+                          key={t}
+                          style={{ borderColor: C.line }}
+                          className="border-b py-2 text-sm leading-relaxed"
+                        >
+                          {t}
+                        </li>
+                      ))}
+                    </ul>
+                    {(trends.trends?.ueberholt || []).length > 0 && (
+                      <>
+                        <Label style={{ display: "block", marginTop: 14 }}>gilt als überholt</Label>
+                        <ul className="mt-1">
+                          {trends.trends.ueberholt.map((t) => (
+                            <li
+                              key={t}
+                              style={{ borderColor: C.line, color: C.dim }}
+                              className="border-b py-2 text-sm leading-relaxed"
+                            >
+                              {t}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    {trends.trends?.unsicherheit && (
+                      <p style={{ color: C.faint }} className="mt-3 text-xs leading-relaxed">
+                        {trends.trends.unsicherheit}
+                      </p>
+                    )}
+                    <p style={{ color: C.faint }} className="mt-3 text-xs leading-relaxed">
+                      Fließt als Hinweis in die Kuration ein, überstimmt die Auswahl aber
+                      nicht. Wird nach 30 Tagen von selbst erneuert.
+                    </p>
+                  </>
+                )}
+              </section>
+
+              <section className="mt-7">
                 <Label>Preis pro Tragen</Label>
                 {stats.teileMitPreis === 0 ? (
                   <p style={{ color: C.faint }} className="mt-2 text-xs leading-relaxed">
@@ -2069,6 +2127,14 @@ export default function App() {
                   onChange={(v) => patchQueue({ patternScale: v })}
                 />
               )}
+              {attrs.category !== "Schuhe" && attrs.category !== "Accessoire" && (
+                <Field
+                  label="Aufdruck" value={attrs.printPosition}
+                  options={V("printPositionen", PRINT_POSITIONS)}
+                  flagged={flagged("printPosition")}
+                  onChange={(v) => patchQueue({ printPosition: v })}
+                />
+              )}
             </div>
 
             <div className="mt-4 flex items-center gap-3">
@@ -2248,6 +2314,13 @@ export default function App() {
                 <Field
                   label="Mustergröße" value={detail.patternScale} options={V("musterGroessen", PATTERN_SCALE)}
                   onChange={(v) => updateItem(detail.id, { patternScale: v })}
+                />
+              )}
+              {detail.category !== "Schuhe" && detail.category !== "Accessoire" && (
+                <Field
+                  label="Aufdruck" value={detail.printPosition}
+                  options={V("printPositionen", PRINT_POSITIONS)}
+                  onChange={(v) => updateItem(detail.id, { printPosition: v })}
                 />
               )}
             </div>

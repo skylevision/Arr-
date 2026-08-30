@@ -33,6 +33,8 @@ export const MATERIALS = [
 ];
 export const TEXTURES = ["glatt", "strukturiert", "glänzend", "flauschig", "robust"];
 export const PATTERN_SCALE = ["klein", "mittel", "groß"];
+export const PRINT_POSITIONS = ["vorne", "hinten", "vorne und hinten", "rundum",
+  "klein/Brust"];
 export const SLEEVES = ["ärmellos", "kurz", "dreiviertel", "lang"];
 export const CARE_LABELS = ["30 Grad", "40 Grad", "60 Grad", "Handwäsche",
   "Reinigung", "nicht in den Trockner"];

@@ -42,6 +42,7 @@ Antworte nur mit JSON.
  "colorName": "deutsche Farbbezeichnung",
  "pattern": "uni | gestreift | kariert | gemustert | meliert | logo",
  "patternScale": "klein | mittel | groß oder null",
+ "printPosition": "nur wenn ein Aufdruck, Motiv oder Schriftzug zu sehen ist: vorne | hinten | vorne und hinten | rundum | klein/Brust. Sonst null. Zeigt das Foto nur eine Seite, nenne die sichtbare",
  "material": "eines von: Baumwolle, Cord, Denim, Leinen, Jersey, Strick, Wolle, Kaschmir, Fleece, Daune, Leder, Wildleder, Kunstleder, Seide, Satin, Viskose, Synthetik, Mesh. Bei sichtbar zwei Materialien das flaechenmaessig groessere zuerst, das zweite nach einem Schraegstrich, etwa \"Wildleder/Mesh\". Wenn nicht erkennbar: null",
  "thickness": "dünn | mittel | dick",
  "texture": "glatt | strukturiert | glänzend | flauschig | robust",
@@ -128,6 +129,7 @@ Regeln für deine Antwort:
   c) er bringt in diesem Aufbau nichts — dann unter "weglassen".
   Diese Prüfung gilt für jedes Outfit einzeln, in dem ein Gürtel steckt. Ihn stillschweigend zu übergehen ist keine der drei Möglichkeiten: er ist im Outfit, also gehört ein Wort dazu.
   Was nicht geht: ein Schritt wie "Gürtel offen tragen" oder "Gürtel sichtbar lassen", während das Oberteil unbeanstandet darüber hängt. Das widerspricht sich, und beim Anziehen steht man dann davor.
+- Dasselbe gilt für Aufdrucke. "printPosition" sagt, wo das Motiv sitzt. Liegt eine Jacke oder ein Overshirt darüber, ist ein Motiv auf der Brust halb verdeckt und eines auf dem Rücken ganz weg. Wenn der Aufdruck das auffälligste am Teil ist und im Aufbau verschwindet, sag es: entweder ein Handgriff, der ihn freilegt (Jacke offen tragen, zurückschlagen), oder ein Halbsatz, dass er hier nur beim Ausziehen zur Geltung kommt. Ein Motiv auf dem Rücken braucht keinen Schritt über die Vorderansicht.
 - Der Trendhinweis ist optional und darf die Auswahl nicht überstimmen. Lass ihn weg, wenn er nichts beiträgt.
 - Die drei Outfits sollen sich klar unterscheiden.
 

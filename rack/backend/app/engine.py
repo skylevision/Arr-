@@ -30,6 +30,13 @@ BOTTOM_LEN = ["shorts", "sieben-achtel", "knöchel", "lang", "stacked"]
 RISES = ["high", "mid", "low"]
 THICKNESS = ["dünn", "mittel", "dick"]
 PATTERNS = ["uni", "gestreift", "kariert", "gemustert", "meliert", "logo"]
+
+# Wo sitzt der Aufdruck? Fuer die Regel-Engine ohne Bedeutung — sie
+# bewertet, wie laut ein Muster ist, nicht wo es klebt. Fuer die Kuration
+# dagegen entscheidend: ein Ruecken-Print unter einer Jacke ist weg, ein
+# Brust-Print unter einer offenen Jacke halb verdeckt. Derselbe Fall wie
+# beim Guertel unter einem langen Oberteil.
+PRINT_POSITIONS = ["vorne", "hinten", "vorne und hinten", "rundum", "klein/Brust"]
 SHOE_WEIGHT = ["filigran", "normal", "chunky"]
 # Pflegehinweise. Bewusst grob: die genauen Symbole stehen im Etikett,
 # hier geht es nur um die Frage, was zusammen in eine Maschine darf.

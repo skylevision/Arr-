@@ -77,6 +77,7 @@ export const api = {
   },
 
   vocab: () => call("/vocab"),
+  trends: () => call("/trends"),
   personen: () => call("/personen"),
   personAnlegen: (name) => call("/personen", { method: "POST", body: { name } }),
   personLoeschen: (id) => call(`/personen/${id}`, { method: "DELETE" }),

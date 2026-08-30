@@ -206,6 +206,7 @@ VOKABULAR: dict[str, list[str]] = {
     "dicken": E.THICKNESS,
     "muster": E.PATTERNS,
     "musterGroessen": ["klein", "mittel", "groß"],
+    "printPositionen": E.PRINT_POSITIONS,
     "materialien": E.MATERIALS,
     "oberflaechen": ["glatt", "strukturiert", "glänzend", "flauschig", "robust"],
     "aermel": ["ärmellos", "kurz", "dreiviertel", "lang"],
@@ -225,6 +226,7 @@ FELD_VOKABULAR: dict[str, str] = {
     "thickness": "dicken",
     "pattern": "muster",
     "patternScale": "musterGroessen",
+    "printPosition": "printPositionen",
     "material": "materialien",
     "texture": "oberflaechen",
     "sleeve": "aermel",
@@ -578,7 +580,9 @@ def _payload_for_model(picks: list[dict]) -> list[dict[str, Any]]:
                    "farbe": x.get("colorName"), "hex": x.get("colorHex"),
                    "schnitt": x.get("fit"), "laenge": x.get("length"),
                    "bund": x.get("rise"), "aermel": x.get("sleeve"),
-                   "muster": x.get("pattern"), "material": x.get("material")}
+                   "muster": x.get("pattern"),
+                   "printPosition": x.get("printPosition"),
+                   "material": x.get("material")}
                   for x in p["parts"]],
     } for i, p in enumerate(picks)]
 
@@ -606,11 +610,24 @@ def _cached_trends() -> dict[str, Any] | None:
 
 
 @router.get("/trends")
-def get_trends() -> dict[str, Any]:
-    cached = db.get_trends()
-    payload = _cached_trends()
-    return {"trends": payload,
-            "abgerufen": (db.get_trends() or cached or {}).get("fetched_at")}
+def get_trends(erneuern: bool = Query(False)) -> dict[str, Any]:
+    """Die hinterlegte Einordnung — standardmäßig nur lesend.
+
+    Ohne "erneuern" wird nichts nachgeholt. Der Abruf kostet eine
+    Websuche, und die soll nicht dadurch ausgelöst werden, dass jemand
+    eine Ansicht öffnet. Erneuert wird von selbst beim Kuratieren, sobald
+    der Stand älter ist als RACK_TREND_MAX_AGE_DAYS.
+    """
+    if erneuern:
+        _cached_trends()
+    eintrag = db.get_trends()
+    if not eintrag:
+        return {"trends": None, "geholt": None, "alter": None,
+                "maxAlterTage": settings.trend_max_age_days}
+    return {"trends": eintrag["payload"],
+            "geholt": eintrag["fetched_at"],
+            "alter": _tage_her(eintrag["fetched_at"]),
+            "maxAlterTage": settings.trend_max_age_days}
 
 
 def _outfit_result(payload: dict[str, Any],

@@ -446,6 +446,25 @@ einer Hose.
 Nachgemessen an drei kuratierten Outfits: vor der Schärfung sprachen zwei von drei den
 Gürtel an, danach drei von drei — je einmal pro Variante.
 
+#### Wo der Aufdruck sitzt
+
+`printPosition` (vorne, hinten, vorne und hinten, rundum, klein/Brust) ist für die
+Regel-Engine ohne Bedeutung — sie bewertet, wie laut ein Muster ist, nicht wo es klebt.
+Für die Kuration dagegen zählt es: liegt eine Jacke oder ein Overshirt darüber, ist ein
+Motiv auf der Brust halb verdeckt und eines auf dem Rücken ganz weg. Derselbe Fall wie der
+Gürtel unter einem langen Oberteil, und im Prompt direkt daneben geregelt.
+
+#### Trends sind sichtbar
+
+Die Einordnung floss immer schon in die Kuration ein, war aber nirgends zu sehen. Jetzt
+steht sie in der Bilanz: Stand, Alter, die Trends selbst und was als überholt gilt, dazu
+der Vorbehalt des Modells zur Quellenlage.
+
+`GET /api/trends` ist dabei **rein lesend**. Ohne `?erneuern=true` wird nichts nachgeholt:
+der Abruf kostet eine Websuche, und die soll nicht dadurch ausgelöst werden, dass jemand
+eine Ansicht öffnet. Erneuert wird von selbst beim Kuratieren, sobald der Stand älter ist
+als `RACK_TREND_MAX_AGE_DAYS`.
+
 #### Warum `max_tokens` großzügig steht
 
 Bei den aktuellen Modellen deckt `max_tokens` **auch das Nachdenken** ab — und das ist der

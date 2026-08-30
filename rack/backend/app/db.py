@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS items (
   color_name      TEXT,
   pattern         TEXT,
   pattern_scale   TEXT,
+  print_position  TEXT,
   material        TEXT,
   material_secondary TEXT,
   thickness       TEXT,
@@ -141,7 +142,8 @@ FIELDS = [
     ("id", "id"), ("name", "name"), ("category", "category"),
     ("subcategory", "subcategory"), ("color_hex", "colorHex"),
     ("color_name", "colorName"), ("pattern", "pattern"),
-    ("pattern_scale", "patternScale"), ("material", "material"),
+    ("pattern_scale", "patternScale"), ("print_position", "printPosition"),
+    ("material", "material"),
     ("material_secondary", "materialSecondary"),
     ("thickness", "thickness"), ("texture", "texture"), ("fit", "fit"),
     ("length", "length"), ("rise", "rise"), ("sleeve", "sleeve"),
@@ -211,6 +213,7 @@ MIGRATIONS: list[tuple[str, str, str]] = [
     ("planned_outfits", "person_id", "INTEGER NOT NULL DEFAULT 1"),
     ("profile", "name", "TEXT"),
     ("feedback", "person_id", "INTEGER NOT NULL DEFAULT 1"),
+    ("items", "print_position", "TEXT"),
     ("outfit_log", "photo_path", "TEXT"),
 ]
 
